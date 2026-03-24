@@ -114,6 +114,8 @@ export type AvoidRouterOptions = {
   edgeRounding?: number;
   /** Snap waypoints to grid. Default: 0 (no grid) */
   diagramGridSize?: number;
+  /** When true, edges spread out along the node border near handles (pin-based). When false, edges converge to exact handle point. Default: true */
+  shouldSplitEdgesNearHandle?: boolean;
   /** Auto-select best connection side based on relative node positions. Default: true */
   autoBestSideConnection?: boolean;
   /** Debounce delay for routing updates (ms). Default: 0 */
@@ -609,8 +611,10 @@ function configureRouter(router: AvoidRouter, options: AvoidRouterOptions): void
   }
 
   // --- Routing options ---
-  router.setRoutingOption(nudgeOrthogonalSegmentsConnectedToShapesOpt, options.nudgeOrthogonalSegmentsConnectedToShapes ?? true);
-  router.setRoutingOption(nudgeSharedPathsWithCommonEndPointOpt, options.nudgeSharedPathsWithCommonEndPoint ?? true);
+  const splitNearHandle = options.shouldSplitEdgesNearHandle ?? true;
+  // When splitNearHandle is off, disable nudging at shapes so edges converge to exact handle point
+  router.setRoutingOption(nudgeOrthogonalSegmentsConnectedToShapesOpt, splitNearHandle ? (options.nudgeOrthogonalSegmentsConnectedToShapes ?? true) : false);
+  router.setRoutingOption(nudgeSharedPathsWithCommonEndPointOpt, splitNearHandle ? (options.nudgeSharedPathsWithCommonEndPoint ?? true) : false);
   router.setRoutingOption(performUnifyingNudgingPreprocessingStepOpt, options.performUnifyingNudgingPreprocessingStep ?? true);
   router.setRoutingOption(nudgeOrthogonalTouchingColinearSegmentsOpt, options.nudgeOrthogonalTouchingColinearSegments ?? false);
   router.setRoutingOption(improveHyperedgeRoutesMovingJunctionsOpt, options.improveHyperedgeRoutesMovingJunctions ?? true);
@@ -693,6 +697,23 @@ function findDefaultHandle(node: FlowNode, kind: "source" | "target"): string | 
 }
 
 
+/** Offset a point away from the node border by stubLength in the direction of the side */
+function offsetFromSide(pt: { x: number; y: number }, side: HandlePosition, stubLength: number): { x: number; y: number } {
+  switch (side) {
+    case "left": return { x: pt.x - stubLength, y: pt.y };
+    case "right": return { x: pt.x + stubLength, y: pt.y };
+    case "top": return { x: pt.x, y: pt.y - stubLength };
+    case "bottom": return { x: pt.x, y: pt.y + stubLength };
+  }
+}
+
+/** Info needed to add stubs after routing when splitNearHandle is off */
+type StubInfo = {
+  edgeId: string;
+  srcHandlePt: { x: number; y: number };
+  tgtHandlePt: { x: number; y: number };
+};
+
 function createConnections(
   router: AvoidRouter,
   edges: FlowEdge[],
@@ -700,9 +721,12 @@ function createConnections(
   shapeRefMap: Map<string, AvoidShapeRef>,
   pinRegistry: PinRegistry,
   options: AvoidRouterOptions
-): { edgeId: string; connRef: AvoidConnRef }[] {
+): { connRefs: { edgeId: string; connRef: AvoidConnRef }[]; stubs: StubInfo[] } {
   const connRefs: { edgeId: string; connRef: AvoidConnRef }[] = [];
+  const stubs: StubInfo[] = [];
   const autoBestSide = options.autoBestSideConnection ?? true;
+  const splitNearHandle = options.shouldSplitEdgesNearHandle ?? true;
+  const stubLength = options.shapeBufferDistance ?? 8;
   const connType = getConnType(options.connectorType);
   const hateCrossings = options.hateCrossings ?? false;
 
@@ -717,36 +741,50 @@ function createConnections(
     const srcBounds = Geometry.getNodeBoundsAbsolute(src, nodeById);
     const tgtBounds = Geometry.getNodeBoundsAbsolute(tgt, nodeById);
 
-    // Priority: explicit handle > auto best (libavoid picks from all 4 sides) > fixed side pin > point fallback
     let srcEnd: AvoidConnEnd;
-    const srcHandle = edge.sourceHandle ?? (autoBestSide ? null : findDefaultHandle(src, "source"));
-    if (srcShapeRef && srcHandle) {
-      // Explicit handle ID or enriched default pin — exact position
-      const pinId = pinRegistry.getOrCreate(edge.source, srcHandle);
-      srcEnd = AvoidConnEnd.fromShapePin(srcShapeRef as any, pinId);
-    } else if (srcShapeRef && autoBestSide) {
-      // All 4 auto pins share `__auto_best` — libavoid picks the optimal side
-      srcEnd = AvoidConnEnd.fromShapePin(srcShapeRef as any, pinRegistry.getOrCreate(edge.source, `__auto_best`));
-    } else if (srcShapeRef) {
-      srcEnd = AvoidConnEnd.fromShapePin(srcShapeRef as any, pinRegistry.getOrCreate(edge.source, `__auto_best`));
-    } else {
-      const side = autoBestSide ? Geometry.getBestSides(srcBounds, tgtBounds).sourcePos : Geometry.getHandlePosition(src, "source");
-      srcEnd = (() => { const pt = Geometry.getHandlePoint(srcBounds, side); return AvoidConnEnd.fromPoint(new AvoidPoint(pt.x, pt.y)); })();
-    }
-
     let tgtEnd: AvoidConnEnd;
-    const tgtHandle = edge.targetHandle ?? (autoBestSide ? null : findDefaultHandle(tgt, "target"));
-    if (tgtShapeRef && tgtHandle) {
-      const pinId = pinRegistry.getOrCreate(edge.target, tgtHandle);
-      tgtEnd = AvoidConnEnd.fromShapePin(tgtShapeRef as any, pinId);
-    } else if (tgtShapeRef && autoBestSide) {
-      // All 4 auto pins share `__auto_best` — libavoid picks the optimal side
-      tgtEnd = AvoidConnEnd.fromShapePin(tgtShapeRef as any, pinRegistry.getOrCreate(edge.target, `__auto_best`));
-    } else if (tgtShapeRef) {
-      tgtEnd = AvoidConnEnd.fromShapePin(tgtShapeRef as any, pinRegistry.getOrCreate(edge.target, `__auto_best`));
+
+    if (splitNearHandle) {
+      // Pin-based: edges spread out along the node border near handles
+      const srcHandle = edge.sourceHandle ?? (autoBestSide ? null : findDefaultHandle(src, "source"));
+      if (srcShapeRef && srcHandle) {
+        const pinId = pinRegistry.getOrCreate(edge.source, srcHandle);
+        srcEnd = AvoidConnEnd.fromShapePin(srcShapeRef as any, pinId);
+      } else if (srcShapeRef) {
+        srcEnd = AvoidConnEnd.fromShapePin(srcShapeRef as any, pinRegistry.getOrCreate(edge.source, `__auto_best`));
+      } else {
+        const side = autoBestSide ? Geometry.getBestSides(srcBounds, tgtBounds).sourcePos : Geometry.getHandlePosition(src, "source");
+        srcEnd = (() => { const pt = Geometry.getHandlePoint(srcBounds, side); return AvoidConnEnd.fromPoint(new AvoidPoint(pt.x, pt.y)); })();
+      }
+
+      const tgtHandle = edge.targetHandle ?? (autoBestSide ? null : findDefaultHandle(tgt, "target"));
+      if (tgtShapeRef && tgtHandle) {
+        const pinId = pinRegistry.getOrCreate(edge.target, tgtHandle);
+        tgtEnd = AvoidConnEnd.fromShapePin(tgtShapeRef as any, pinId);
+      } else if (tgtShapeRef) {
+        tgtEnd = AvoidConnEnd.fromShapePin(tgtShapeRef as any, pinRegistry.getOrCreate(edge.target, `__auto_best`));
+      } else {
+        const side = autoBestSide ? Geometry.getBestSides(srcBounds, tgtBounds).targetPos : Geometry.getHandlePosition(tgt, "target");
+        tgtEnd = (() => { const pt = Geometry.getHandlePoint(tgtBounds, side); return AvoidConnEnd.fromPoint(new AvoidPoint(pt.x, pt.y)); })();
+      }
     } else {
-      const side = autoBestSide ? Geometry.getBestSides(srcBounds, tgtBounds).targetPos : Geometry.getHandlePosition(tgt, "target");
-      tgtEnd = (() => { const pt = Geometry.getHandlePoint(tgtBounds, side); return AvoidConnEnd.fromPoint(new AvoidPoint(pt.x, pt.y)); })();
+      // Point-based with stubs: all edges from the same side converge to center of side,
+      // then route from a stub point offset outward
+      const srcSide = autoBestSide ? Geometry.getBestSides(srcBounds, tgtBounds).sourcePos : Geometry.getHandlePosition(src, "source");
+      const tgtSide = autoBestSide ? Geometry.getBestSides(srcBounds, tgtBounds).targetPos : Geometry.getHandlePosition(tgt, "target");
+
+      // Use center of the side (ignore individual handle positions)
+      const srcHandlePt = Geometry.getHandlePoint(srcBounds, srcSide);
+      const tgtHandlePt = Geometry.getHandlePoint(tgtBounds, tgtSide);
+
+      // Route from stub endpoints (offset from center of side)
+      const srcStubPt = offsetFromSide(srcHandlePt, srcSide, stubLength);
+      const tgtStubPt = offsetFromSide(tgtHandlePt, tgtSide, stubLength);
+
+      srcEnd = AvoidConnEnd.fromPoint(new AvoidPoint(srcStubPt.x, srcStubPt.y));
+      tgtEnd = AvoidConnEnd.fromPoint(new AvoidPoint(tgtStubPt.x, tgtStubPt.y));
+
+      stubs.push({ edgeId: edge.id, srcHandlePt, tgtHandlePt });
     }
 
     const connRef = new AvoidConnRef(router as any, srcEnd, tgtEnd);
@@ -767,7 +805,7 @@ function createConnections(
     connRefs.push({ edgeId: edge.id, connRef });
   }
 
-  return connRefs;
+  return { connRefs, stubs };
 }
 
 // ---- Routing Engine ----
@@ -790,7 +828,7 @@ export class RoutingEngine {
     configureRouter(router, opts);
 
     const { shapeRefMap, shapeRefList } = createObstacles(router, nodes, nodeById, pinRegistry, opts);
-    const connRefs = createConnections(router, edges, nodeById, shapeRefMap, pinRegistry, opts);
+    const { connRefs, stubs } = createConnections(router, edges, nodeById, shapeRefMap, pinRegistry, opts);
 
     const result: Record<string, AvoidRoute> = {};
     try { router.processTransaction(); } catch (e) { console.error("[edge-routing] processTransaction failed:", e); RoutingEngine.cleanup(router, connRefs, shapeRefList); return result; }
@@ -798,11 +836,24 @@ export class RoutingEngine {
     // Read routed points directly from libavoid
     const edgePoints = RoutingEngine.extractRoutePoints(connRefs);
 
-    // Adjust spacing at shared handles (fan-out effect)
-    const idealNudging = opts.idealNudgingDistance ?? 10;
-    const handleNudging = opts.handleNudgingDistance ?? idealNudging;
-    if (handleNudging !== idealNudging && edgePoints.size > 0) {
-      HandleSpacing.adjust(edges, edgePoints, handleNudging, idealNudging);
+    // Prepend/append stub handle points for non-split mode
+    const stubMap = new Map(stubs.map((s) => [s.edgeId, s]));
+    for (const [edgeId, points] of edgePoints) {
+      const stub = stubMap.get(edgeId);
+      if (stub) {
+        points.unshift(stub.srcHandlePt);
+        points.push(stub.tgtHandlePt);
+      }
+    }
+
+    // Adjust spacing at shared handles (fan-out effect) — skip when splitNearHandle is off
+    const splitNearHandle = opts.shouldSplitEdgesNearHandle ?? true;
+    if (splitNearHandle) {
+      const idealNudging = opts.idealNudgingDistance ?? 10;
+      const handleNudging = opts.handleNudgingDistance ?? idealNudging;
+      if (handleNudging !== idealNudging && edgePoints.size > 0) {
+        HandleSpacing.adjust(edges, edgePoints, handleNudging, idealNudging);
+      }
     }
 
     const connType = opts.connectorType ?? "orthogonal";
@@ -859,6 +910,7 @@ export class PersistentRouter {
   private shapeRefMap = new Map<string, AvoidShapeRef>();
   private shapeRefList: AvoidShapeRef[] = [];
   private connRefList: { edgeId: string; connRef: AvoidConnRef }[] = [];
+  private stubList: StubInfo[] = [];
   private prevNodes: FlowNode[] = [];
   private prevEdges: FlowEdge[] = [];
   private prevOptions: AvoidRouterOptions = {};
@@ -938,7 +990,9 @@ export class PersistentRouter {
     const result = createObstacles(this.router, this.prevNodes, this.nodeById, this.pinRegistry, opts);
     this.shapeRefMap = result.shapeRefMap;
     this.shapeRefList = result.shapeRefList;
-    this.connRefList = createConnections(this.router, this.prevEdges, this.nodeById, this.shapeRefMap, this.pinRegistry, opts);
+    const conn = createConnections(this.router, this.prevEdges, this.nodeById, this.shapeRefMap, this.pinRegistry, opts);
+    this.connRefList = conn.connRefs;
+    this.stubList = conn.stubs;
 
     try { this.router.processTransaction(); }
     catch { this.destroy(); return {}; }
@@ -956,8 +1010,19 @@ export class PersistentRouter {
     // Read routed points directly from libavoid
     const edgePoints = RoutingEngine.extractRoutePoints(this.connRefList);
 
-    // Adjust spacing at shared handles (fan-out effect)
-    if (handleNudging !== idealNudging && edgePoints.size > 0) {
+    // Prepend/append stub handle points for non-split mode
+    const stubMap = new Map(this.stubList.map((s) => [s.edgeId, s]));
+    for (const [edgeId, points] of edgePoints) {
+      const stub = stubMap.get(edgeId);
+      if (stub) {
+        points.unshift(stub.srcHandlePt);
+        points.push(stub.tgtHandlePt);
+      }
+    }
+
+    // Adjust spacing at shared handles (fan-out effect) — skip when splitNearHandle is off
+    const splitNearHandle = opts.shouldSplitEdgesNearHandle ?? true;
+    if (splitNearHandle && handleNudging !== idealNudging && edgePoints.size > 0) {
       HandleSpacing.adjust(this.prevEdges, edgePoints, handleNudging, idealNudging);
     }
 
