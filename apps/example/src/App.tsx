@@ -269,7 +269,7 @@ function FlowCanvas() {
   // Leva routing settings
   const {
     connectorType, edgeToEdgeSpacing, edgeToNodeSpacing, handleSpacing,
-    edgeRounding, diagramGridSize, shouldSplitEdgesNearHandle, segmentPenalty, anglePenalty, reverseDirectionPenalty,
+    edgeRounding, diagramGridSize, shouldSplitEdgesNearHandle, stubSize, segmentPenalty, anglePenalty, reverseDirectionPenalty,
     crossingPenalty, hateCrossings, pinInsideOffset,
     nudgeOrthogonalSegmentsConnectedToShapes, nudgeSharedPathsWithCommonEndPoint,
     performUnifyingNudgingPreprocessingStep, nudgeOrthogonalTouchingColinearSegments,
@@ -281,6 +281,7 @@ function FlowCanvas() {
     edgeToNodeSpacing: { value: 8, min: 0, max: 48, step: 1, label: "Edge↔Node" },
     diagramGridSize: { value: 0, min: 0, max: 48, step: 1, label: "Grid Size" },
     shouldSplitEdgesNearHandle: { value: true, label: "Split Edges Near Handle" },
+    stubSize: { value: 20, min: 0, max: 60, step: 1, label: "Stub Size" },
     autoBestSideConnection: { value: true, label: "Auto Best Side" },
     hateCrossings: { value: false, label: "Avoid Crossings" },
     hideHandles: { value: true, label: "Hide Handles" },
@@ -335,7 +336,7 @@ function FlowCanvas() {
   const enrichNode = useMemo(() => createEnrichNode(getInternalNode), [getInternalNode]);
 
   const { updateRoutingOnNodesChange, resetRouting } = useEdgeRouting(nodes, edges, {
-    connectorType, edgeToEdgeSpacing, edgeToNodeSpacing, handleSpacing, edgeRounding, diagramGridSize, shouldSplitEdgesNearHandle,
+    connectorType, edgeToEdgeSpacing, edgeToNodeSpacing, handleSpacing, edgeRounding, diagramGridSize, shouldSplitEdgesNearHandle, stubSize,
     segmentPenalty, anglePenalty, reverseDirectionPenalty, crossingPenalty,
     hateCrossings, pinInsideOffset, autoBestSideConnection,
     nudgeOrthogonalSegmentsConnectedToShapes, nudgeSharedPathsWithCommonEndPoint,
@@ -433,10 +434,16 @@ function FlowCanvas() {
 // App root
 // ---------------------------------------------------------------------------
 
+const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+
 export default function App() {
   return (
     <ReactFlowProvider>
-      <Leva titleBar={{ title: "Edge Routing" }} collapsed={false} theme={{ sizes: { rootWidth: "360px" } }} />
+      <Leva
+        titleBar={{ title: "\u2699\uFE0F Edge Routing Settings" }}
+        collapsed={isMobile}
+        theme={{ sizes: { rootWidth: isMobile ? "280px" : "360px" } }}
+      />
       <style>{`
         .hide-handles .react-flow__handle { visibility: hidden; }
         div[class*="leva-"] label > div {
@@ -453,6 +460,16 @@ export default function App() {
         div[class*="leva-"] label svg {
           width: 18px !important;
           height: 18px !important;
+        }
+        @media (max-width: 767px) {
+          div[class*="leva-c-kWgxhW"] {
+            top: 44px !important;
+            right: 4px !important;
+            left: auto !important;
+            width: auto !important;
+            max-width: calc(100vw - 8px) !important;
+            max-height: calc(100vh - 54px) !important;
+          }
         }
       `}</style>
       <FlowCanvas />

@@ -116,6 +116,8 @@ export type AvoidRouterOptions = {
   diagramGridSize?: number;
   /** When true, edges spread out along the node border near handles (pin-based). When false, edges converge to exact handle point. Default: true */
   shouldSplitEdgesNearHandle?: boolean;
+  /** Length (px) of the stub segment when shouldSplitEdgesNearHandle is off. Default: 20 */
+  stubSize?: number;
   /** Auto-select best connection side based on relative node positions. Default: true */
   autoBestSideConnection?: boolean;
   /** Debounce delay for routing updates (ms). Default: 0 */
@@ -726,7 +728,7 @@ function createConnections(
   const stubs: StubInfo[] = [];
   const autoBestSide = options.autoBestSideConnection ?? true;
   const splitNearHandle = options.shouldSplitEdgesNearHandle ?? true;
-  const stubLength = options.shapeBufferDistance ?? 8;
+  const stubLength = options.stubSize ?? 20;
   const connType = getConnType(options.connectorType);
   const hateCrossings = options.hateCrossings ?? false;
 

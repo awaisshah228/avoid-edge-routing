@@ -66,6 +66,8 @@ export interface UseEdgeRoutingOptions {
   diagramGridSize?: number;
   /** When true, edges spread out along the node border near handles. When false, edges converge to exact handle point. Default: true */
   shouldSplitEdgesNearHandle?: boolean;
+  /** Length (px) of the stub segment when shouldSplitEdgesNearHandle is off. Default: 20 */
+  stubSize?: number;
   autoBestSideConnection?: boolean;
   debounceMs?: number;
 
@@ -127,6 +129,7 @@ function toRouterOptions(opts?: UseEdgeRoutingOptions): AvoidRouterOptions {
     edgeRounding: opts?.edgeRounding ?? DEFAULT_OPTIONS.edgeRounding,
     diagramGridSize: opts?.diagramGridSize ?? DEFAULT_OPTIONS.diagramGridSize,
     shouldSplitEdgesNearHandle: opts?.shouldSplitEdgesNearHandle ?? DEFAULT_OPTIONS.shouldSplitEdgesNearHandle,
+    stubSize: opts?.stubSize,
     autoBestSideConnection: opts?.autoBestSideConnection ?? DEFAULT_OPTIONS.autoBestSideConnection,
     debounceMs: opts?.debounceMs ?? DEFAULT_OPTIONS.debounceMs,
   };
