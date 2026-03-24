@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@dagrejs/dagre": "^3.0.0",
+    "@vercel/analytics": "^2.0.1",
     "@xyflow/react": "^12.6.2",
     "d3-hierarchy": "^3.1.2",
     "elkjs": "^0.11.1",
