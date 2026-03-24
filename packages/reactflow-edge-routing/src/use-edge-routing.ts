@@ -130,7 +130,9 @@ function toRouterOptions(opts?: UseEdgeRoutingOptions): AvoidRouterOptions {
     diagramGridSize: opts?.diagramGridSize ?? DEFAULT_OPTIONS.diagramGridSize,
     shouldSplitEdgesNearHandle: opts?.shouldSplitEdgesNearHandle ?? DEFAULT_OPTIONS.shouldSplitEdgesNearHandle,
     stubSize: opts?.stubSize,
-    autoBestSideConnection: opts?.autoBestSideConnection ?? DEFAULT_OPTIONS.autoBestSideConnection,
+    // bezier defaults to autoBestSideConnection: true — explicit handles
+    // make no visual sense on curved paths, so auto-side is the right default.
+    autoBestSideConnection: opts?.autoBestSideConnection ?? (opts?.connectorType === "bezier" ? true : DEFAULT_OPTIONS.autoBestSideConnection),
     debounceMs: opts?.debounceMs ?? DEFAULT_OPTIONS.debounceMs,
   };
 }

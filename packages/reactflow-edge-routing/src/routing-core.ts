@@ -748,7 +748,10 @@ function createConnections(
 
     if (splitNearHandle) {
       // Pin-based: edges spread out along the node border near handles
-      const srcHandle = edge.sourceHandle ?? (autoBestSide ? null : findDefaultHandle(src, "source"));
+      // When autoBestSide is on, ignore explicit sourceHandle/targetHandle on edges
+      // and let the router pick the optimal side. Only use explicit handles when
+      // autoBestSide is off (pin-based routing with fixed handle positions).
+      const srcHandle = autoBestSide ? null : (edge.sourceHandle ?? findDefaultHandle(src, "source"));
       if (srcShapeRef && srcHandle) {
         const pinId = pinRegistry.getOrCreate(edge.source, srcHandle);
         srcEnd = AvoidConnEnd.fromShapePin(srcShapeRef as any, pinId);
@@ -759,7 +762,7 @@ function createConnections(
         srcEnd = (() => { const pt = Geometry.getHandlePoint(srcBounds, side); return AvoidConnEnd.fromPoint(new AvoidPoint(pt.x, pt.y)); })();
       }
 
-      const tgtHandle = edge.targetHandle ?? (autoBestSide ? null : findDefaultHandle(tgt, "target"));
+      const tgtHandle = autoBestSide ? null : (edge.targetHandle ?? findDefaultHandle(tgt, "target"));
       if (tgtShapeRef && tgtHandle) {
         const pinId = pinRegistry.getOrCreate(edge.target, tgtHandle);
         tgtEnd = AvoidConnEnd.fromShapePin(tgtShapeRef as any, pinId);
@@ -853,7 +856,7 @@ export class RoutingEngine {
     if (splitNearHandle) {
       const idealNudging = opts.idealNudgingDistance ?? 10;
       const handleNudging = opts.handleNudgingDistance ?? idealNudging;
-      if (handleNudging !== idealNudging && edgePoints.size > 0) {
+      if (handleNudging > idealNudging && edgePoints.size > 0) {
         HandleSpacing.adjust(edges, edgePoints, handleNudging, idealNudging);
       }
     }
@@ -1024,7 +1027,7 @@ export class PersistentRouter {
 
     // Adjust spacing at shared handles (fan-out effect) — skip when splitNearHandle is off
     const splitNearHandle = opts.shouldSplitEdgesNearHandle ?? true;
-    if (splitNearHandle && handleNudging !== idealNudging && edgePoints.size > 0) {
+    if (splitNearHandle && handleNudging > idealNudging && edgePoints.size > 0) {
       HandleSpacing.adjust(this.prevEdges, edgePoints, handleNudging, idealNudging);
     }
 

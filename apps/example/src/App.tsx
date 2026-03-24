@@ -19,6 +19,7 @@ import {
   applyNodeChanges,
   applyEdgeChanges,
   addEdge,
+  MarkerType,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useControls, folder, button, Leva } from "leva";
@@ -170,7 +171,7 @@ function handlePositionsForDirection(dir: LayoutDirection): { src: Position; tgt
 // Example definitions
 // ---------------------------------------------------------------------------
 
-type ExampleKey = "multi-handle" | "basic" | "groups" | "subflows" | "dag" | "tree" | "auto-layout" | "auto-layout-groups" | "stress";
+type ExampleKey = "basic" | "multi-handle" | "groups" | "subflows" | "dag" | "tree" | "auto-layout" | "auto-layout-groups" | "stress";
 
 interface ExampleDef {
   key: ExampleKey;
@@ -182,22 +183,30 @@ interface ExampleDef {
 }
 
 const EXAMPLES: ExampleDef[] = [
+  { key: "basic", label: "Basic", nodes: basicNodes, edges: basicEdges, skipLayout: false },
   { key: "multi-handle", label: "Multi-Handle", skipLayout: true, nodes: [
     { id: "split", type: "splitter", position: { x: 50, y: 100 }, data: {} },
     { id: "procA", type: "process", position: { x: 280, y: 30 }, data: { label: "Proc A" } },
     { id: "procB", type: "process", position: { x: 280, y: 180 }, data: { label: "Proc B" } },
     { id: "procC", type: "process", position: { x: 280, y: 330 }, data: { label: "Proc C" } },
     { id: "merge", type: "merger", position: { x: 520, y: 100 }, data: {} },
-  ], edges: [
-    { id: "e-split-a", source: "split", sourceHandle: "out-0", target: "procA", targetHandle: "in-0", type: "routed" },
-    { id: "e-split-b", source: "split", sourceHandle: "out-1", target: "procB", targetHandle: "in-0", type: "routed" },
-    { id: "e-split-c", source: "split", sourceHandle: "out-2", target: "procC", targetHandle: "in-0", type: "routed" },
-    { id: "e-a-merge", source: "procA", sourceHandle: "out-0", target: "merge", targetHandle: "in-0", type: "routed" },
-    { id: "e-b-merge", source: "procB", sourceHandle: "out-0", target: "merge", targetHandle: "in-1", type: "routed" },
-    { id: "e-c-merge", source: "procC", sourceHandle: "out-0", target: "merge", targetHandle: "in-2", type: "routed" },
-    { id: "e-a-b", source: "procA", sourceHandle: "out-1", target: "procB", targetHandle: "in-1", type: "routed" },
-  ]},
-  { key: "basic", label: "Basic", nodes: basicNodes, edges: basicEdges, skipLayout: false },
+  ], edges: ((): Edge[] => {
+    const mk = (color: string) => ({ type: MarkerType.ArrowClosed, width: 12, height: 12, color });
+    const e = (id: string, source: string, sh: string, target: string, th: string, color: string): Edge => ({
+      id, source, sourceHandle: sh, target, targetHandle: th, type: "routed",
+      markerEnd: mk(color),
+      data: { strokeColor: color },
+    });
+    return [
+      e("e-split-a", "split", "out-0", "procA", "in-0", "#3b82f6"),
+      e("e-split-b", "split", "out-1", "procB", "in-0", "#f59e0b"),
+      e("e-split-c", "split", "out-2", "procC", "in-0", "#ef4444"),
+      e("e-a-merge", "procA", "out-0", "merge", "in-0", "#3b82f6"),
+      e("e-b-merge", "procB", "out-0", "merge", "in-1", "#f59e0b"),
+      e("e-c-merge", "procC", "out-0", "merge", "in-2", "#ef4444"),
+      e("e-a-b",     "procA", "out-1", "procB", "in-1", "#8b5cf6"),
+    ];
+  })()},
   { key: "groups", label: "Groups", nodes: groupNodes, edges: groupEdges, skipLayout: true },
   { key: "subflows", label: "Subflows", nodes: subflowNodes, edges: subflowEdges, skipLayout: true },
   { key: "dag", label: "DAG", nodes: dagNodes, edges: dagEdges, layout: { direction: "TB", elkMode: "layered", spacing: 30 } },
@@ -226,7 +235,7 @@ const edgeTypes = { routed: RoutedEdge };
 // ---------------------------------------------------------------------------
 
 function FlowCanvas() {
-  const [activeExample, setActiveExample] = useState<ExampleKey>("multi-handle");
+  const [activeExample, setActiveExample] = useState<ExampleKey>("basic");
   const [nodes, setNodes] = useState<Node[]>(EXAMPLES[0].nodes);
   const [edges, setEdges] = useState<Edge[]>(EXAMPLES[0].edges);
   const { getInternalNode, fitView } = useReactFlow();
@@ -283,7 +292,7 @@ function FlowCanvas() {
     diagramGridSize: { value: 0, min: 0, max: 48, step: 1, label: "Grid Size" },
     shouldSplitEdgesNearHandle: { value: true, label: "Split Edges Near Handle" },
     stubSize: { value: 20, min: 0, max: 60, step: 1, label: "Stub Size" },
-    autoBestSideConnection: { value: true, label: "Auto Best Side" },
+    autoBestSideConnection: { value: false, label: "Auto Best Side" },
     hateCrossings: { value: false, label: "Avoid Crossings" },
     hideHandles: { value: true, label: "Hide Handles" },
     realTimeRouting: { value: false, label: "Route While Dragging" },
