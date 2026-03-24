@@ -1,9 +1,11 @@
 import { memo } from "react";
 import { BaseEdge, type EdgeProps } from "@xyflow/react";
-import { useRoutedEdgePath, useEdgeRoutingStore } from "edge-routing";
+import { useRoutedEdgePath, useEdgeRoutingStore } from "reactflow-edge-routing";
 
 function RoutedEdgeComponent({
   id,
+  source,
+  target,
   sourceX,
   sourceY,
   targetX,
@@ -16,6 +18,8 @@ function RoutedEdgeComponent({
 
   const [edgePath, labelX, labelY, wasRouted] = useRoutedEdgePath({
     id,
+    source,
+    target,
     sourceX,
     sourceY,
     targetX,

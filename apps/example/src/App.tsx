@@ -19,7 +19,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useControls, folder, Leva } from "leva";
-import { useEdgeRouting, type ConnectorType } from "edge-routing";
+import { useEdgeRouting, type ConnectorType } from "reactflow-edge-routing";
 import { RoutedEdge } from "./RoutedEdge";
 import { createEnrichNode } from "./enrichNode";
 

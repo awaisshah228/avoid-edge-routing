@@ -1,5 +1,5 @@
 {
-  "name": "edge-routing-example",
+  "name": "reactflow-edge-routing-example",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@xyflow/react": "^12.6.2",
-    "edge-routing": "*",
+    "reactflow-edge-routing": "*",
     "leva": "^0.10.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

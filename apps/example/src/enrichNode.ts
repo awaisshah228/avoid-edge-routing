@@ -9,7 +9,7 @@
  */
 
 import type { Node, ReactFlowInstance } from "@xyflow/react";
-import type { HandlePin } from "edge-routing";
+import type { HandlePin } from "reactflow-edge-routing";
 
 type HandlePosition = "left" | "right" | "top" | "bottom";
 
