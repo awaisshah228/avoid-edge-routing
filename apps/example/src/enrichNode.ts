@@ -30,8 +30,10 @@ export function createEnrichNode(
     if (!internal) return node;
 
     const style = node.style as { width?: number; height?: number } | undefined;
-    const measuredW = node.measured?.width ?? style?.width ?? (node.width as number | undefined);
-    const measuredH = node.measured?.height ?? style?.height ?? (node.height as number | undefined);
+    // Prefer React Flow's internal measured dimensions (always up-to-date) over the
+    // node state's measured field, which can lag behind on first render.
+    const measuredW = internal.measured?.width ?? node.measured?.width ?? style?.width ?? (node.width as number | undefined);
+    const measuredH = internal.measured?.height ?? node.measured?.height ?? style?.height ?? (node.height as number | undefined);
     if (!measuredW || !measuredH) return node;
 
     const handleBounds = internal.internals?.handleBounds;
