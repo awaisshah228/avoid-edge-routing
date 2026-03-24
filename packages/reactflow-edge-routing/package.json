@@ -1,6 +1,6 @@
 {
   "name": "reactflow-edge-routing",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Orthogonal edge routing for React Flow using obstacle-router. Edges route around nodes while pins stay fixed at their anchor points.",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
