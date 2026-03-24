@@ -6,7 +6,14 @@
       "Bash(wc -l /Users/awaisshah228/Documents/avoid-edge-routing/refrence/avoid-nodes-pro-example/packages/avoid-nodes-edge/src/*.ts* /Users/awaisshah228/Documents/avoid-edge-routing/refrence/biocon/packages/edge-routing/src/*.ts*)",
       "Bash(sed -i '' '/console\\\\.log.*\\\\[routing-core\\\\]/d' packages/reactflow-edge-routing/src/routing-core.ts)",
       "Bash(sed -i '' '/console\\\\.log.*obstacle\\\\|console\\\\.log.*edge.*srcShape/d' packages/reactflow-edge-routing/src/routing-core.ts)",
-      "Bash(yarn workspace:*)"
+      "Bash(yarn workspace:*)",
+      "Bash(ls /Users/awaisshah228/Documents/avoid-edge-routing/*.md)",
+      "Bash(git mv:*)",
+      "Bash(lsof -iTCP -sTCP:LISTEN -P)",
+      "Read(//Users/awaisshah228/Documents/avoid-edge-routing/$9 ~ /**)"
+    ],
+    "additionalDirectories": [
+      "/Users/awaisshah228/Documents/coding/ai-diagram-generator/avoid-nodes-pro-example/assets"
     ]
   }
 }
