@@ -287,7 +287,8 @@ function segmentIntersectsRect(
   return tMin <= tMax;
 }
 
-/** Returns true if the direct line from srcPt to tgtPt is blocked by any node except the source/target nodes. */
+/** Returns true if the direct line from srcPt to tgtPt is blocked by any node except the source/target nodes.
+ *  Also returns true if the path goes back through the source or target node's own body. */
 function isEdgeDirectPathBlocked(
   srcPt: { x: number; y: number },
   tgtPt: { x: number; y: number },
@@ -297,9 +298,25 @@ function isEdgeDirectPathBlocked(
   nodeById: Map<string, FlowNode>,
   buffer: number
 ): boolean {
+  const pointInRect = (p: { x: number; y: number }, b: { x: number; y: number; w: number; h: number }) =>
+    p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h;
+
   for (const node of nodes) {
-    if (node.id === srcNodeId || node.id === tgtNodeId) continue;
     const bounds = Geometry.getNodeBoundsAbsolute(node, nodeById);
+    if (node.id === srcNodeId || node.id === tgtNodeId) {
+      // Check if the path goes back through the node's own body by probing
+      // a small step inward from the handle point along the segment direction.
+      const endPt = node.id === srcNodeId ? srcPt : tgtPt;
+      const otherPt = node.id === srcNodeId ? tgtPt : srcPt;
+      const dx = otherPt.x - endPt.x, dy = otherPt.y - endPt.y;
+      const len = Math.sqrt(dx * dx + dy * dy);
+      if (len > 4) {
+        const step = 2 / len;
+        const probe = { x: endPt.x + dx * step, y: endPt.y + dy * step };
+        if (pointInRect(probe, bounds)) return true;
+      }
+      continue;
+    }
     if (segmentIntersectsRect(srcPt, tgtPt, bounds, buffer)) return true;
   }
   return false;
