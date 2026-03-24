@@ -1,11 +1,13 @@
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ReactFlow,
   ReactFlowProvider,
   Background,
   Controls,
+  MiniMap,
   Handle,
   Position,
+  NodeResizer,
   useReactFlow,
   type Node,
   type Edge,
@@ -18,16 +20,27 @@ import {
   addEdge,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { useControls, folder, Leva } from "leva";
-import { useEdgeRouting, type ConnectorType } from "reactflow-edge-routing";
+import { useControls, folder, button, Leva } from "leva";
+import { useEdgeRouting, resolveCollisions, type ConnectorType } from "reactflow-edge-routing";
 import { RoutedEdge } from "./RoutedEdge";
 import { createEnrichNode } from "./enrichNode";
+import { runAutoLayout, type LayoutDirection, type LayoutAlgorithmName, type ElkMode } from "./auto-layout";
+import { expandGroups } from "./expandGroups";
+
+// Data imports
+import { basicNodes, basicEdges } from "./data/initialElementsBasic";
+import { nodes as groupNodes, edges as groupEdges } from "./data/initialElements";
+import { subflowNodes, subflowEdges } from "./data/initialElementsSubflows";
+import { dagNodes, dagEdges } from "./data/initialElementsDAG";
+import { treeNodes, treeEdges } from "./data/initialElementsTree";
+import { stressNodes, stressEdges } from "./data/initialElementsStress";
+import { elkNodes, elkEdges } from "./data/initialElementsElk";
+import { autoLayoutGroupNodes, autoLayoutGroupEdges } from "./data/initialElementsAutoLayoutGroups";
 
 // ---------------------------------------------------------------------------
-// Custom multi-handle nodes (demonstrates pin-accurate routing)
+// Custom multi-handle nodes
 // ---------------------------------------------------------------------------
 
-/** Evenly space N pins within a side (4px padding top/bottom). */
 function pinYs(h: number, count: number): number[] {
   const bodyY = 4;
   const bodyH = h - 8;
@@ -36,9 +49,7 @@ function pinYs(h: number, count: number): number[] {
   );
 }
 
-// --- Node dimensions (declared early so pin registry can reference them) ---
-const SPLIT_W = 80;
-const SPLIT_H = 70;
+const SPLIT_W = 80, SPLIT_H = 70;
 const [splitInY] = pinYs(SPLIT_H, 1);
 const [splitOutY1, splitOutY2, splitOutY3] = pinYs(SPLIT_H, 3);
 
@@ -55,9 +66,7 @@ const SplitterNode = memo(({ selected }: NodeProps) => (
   </div>
 ));
 
-// --- Merger: 3 inputs left, 1 output right ---
-const MERGE_W = 80;
-const MERGE_H = 70;
+const MERGE_W = 80, MERGE_H = 70;
 const [mergeInY1, mergeInY2, mergeInY3] = pinYs(MERGE_H, 3);
 const [mergeOutY] = pinYs(MERGE_H, 1);
 
@@ -74,9 +83,7 @@ const MergerNode = memo(({ selected }: NodeProps) => (
   </div>
 ));
 
-// --- Process: 2 inputs left, 2 outputs right ---
-const PROC_W = 100;
-const PROC_H = 60;
+const PROC_W = 100, PROC_H = 60;
 const [procInY1, procInY2] = pinYs(PROC_H, 2);
 const [procOutY1, procOutY2] = pinYs(PROC_H, 2);
 
@@ -95,6 +102,112 @@ const ProcessNode = memo(({ data, selected }: NodeProps) => (
   </div>
 ));
 
+// Generic multi-handle node — reads handle counts + style from data
+const BASIC_W = 140, BASIC_H = 50;
+
+const BasicMultiNode = memo(({ data, selected }: NodeProps) => {
+  const d = data as {
+    label?: string;
+    sources?: number;
+    targets?: number;
+    borderColor?: string;
+    borderRadius?: number;
+    fill?: string;
+    textColor?: string;
+    opacity?: number;
+  };
+  const sources = d.sources ?? 0;
+  const targets = d.targets ?? 0;
+  const w = BASIC_W;
+  const h = BASIC_H;
+  const borderColor = d.borderColor ?? "#64748b";
+  const radius = d.borderRadius ?? 6;
+  const fill = d.fill ?? "#f8fafc";
+  const textColor = d.textColor ?? "#1e293b";
+  const tgtYs = pinYs(h, targets);
+  const srcYs = pinYs(h, sources);
+
+  return (
+    <div style={{ width: w, height: h, position: "relative", opacity: d.opacity ?? 1, outline: selected ? "2px solid #6366f1" : undefined, outlineOffset: 2 }}>
+      <svg viewBox={`0 0 ${w} ${h}`} width={w} height={h}>
+        <rect x={2} y={2} width={w - 4} height={h - 4} rx={radius} fill={fill} stroke={borderColor} strokeWidth={1.5} />
+        <text x={w / 2} y={h / 2 + 1} textAnchor="middle" dominantBaseline="middle" fontSize={12} fill={textColor} fontWeight="600" fontFamily="sans-serif">
+          {d.label ?? "Node"}
+        </text>
+      </svg>
+      {tgtYs.map((y, i) => (
+        <Handle key={`in-${i}`} id={`in-${i}`} type="target" position={Position.Left}
+          style={{ left: 0, top: y, width: 7, height: 7, background: borderColor, border: `2px solid ${borderColor}`, transform: "translate(-50%, -50%)" }} />
+      ))}
+      {srcYs.map((y, i) => (
+        <Handle key={`out-${i}`} id={`out-${i}`} type="source" position={Position.Right}
+          style={{ left: w, top: y, width: 7, height: 7, background: "#22c55e", border: "2px solid #16a34a", transform: "translate(-50%, -50%)" }} />
+      ))}
+    </div>
+  );
+});
+
+// Group node with resizer
+const GroupNode = memo(({ selected }: NodeProps) => (
+  <div style={{ width: "100%", height: "100%", position: "relative" }}>
+    <NodeResizer isVisible={selected} minWidth={100} minHeight={100} />
+  </div>
+));
+
+// ---------------------------------------------------------------------------
+// Handle positions by layout direction
+// ---------------------------------------------------------------------------
+
+function handlePositionsForDirection(dir: LayoutDirection): { src: Position; tgt: Position } {
+  switch (dir) {
+    case "LR": return { src: Position.Right, tgt: Position.Left };
+    case "RL": return { src: Position.Left, tgt: Position.Right };
+    case "TB": return { src: Position.Bottom, tgt: Position.Top };
+    case "BT": return { src: Position.Top, tgt: Position.Bottom };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Example definitions
+// ---------------------------------------------------------------------------
+
+type ExampleKey = "multi-handle" | "basic" | "groups" | "subflows" | "dag" | "tree" | "auto-layout" | "auto-layout-groups" | "stress";
+
+interface ExampleDef {
+  key: ExampleKey;
+  label: string;
+  nodes: Node[];
+  edges: Edge[];
+  layout?: { direction?: LayoutDirection; elkMode?: ElkMode; spacing?: number; algorithm?: LayoutAlgorithmName };
+  skipLayout?: boolean;
+}
+
+const EXAMPLES: ExampleDef[] = [
+  { key: "multi-handle", label: "Multi-Handle", skipLayout: true, nodes: [
+    { id: "split", type: "splitter", position: { x: 50, y: 100 }, data: {} },
+    { id: "procA", type: "process", position: { x: 280, y: 30 }, data: { label: "Proc A" } },
+    { id: "procB", type: "process", position: { x: 280, y: 180 }, data: { label: "Proc B" } },
+    { id: "procC", type: "process", position: { x: 280, y: 330 }, data: { label: "Proc C" } },
+    { id: "merge", type: "merger", position: { x: 520, y: 100 }, data: {} },
+  ], edges: [
+    { id: "e-split-a", source: "split", sourceHandle: "out-0", target: "procA", targetHandle: "in-0", type: "routed" },
+    { id: "e-split-b", source: "split", sourceHandle: "out-1", target: "procB", targetHandle: "in-0", type: "routed" },
+    { id: "e-split-c", source: "split", sourceHandle: "out-2", target: "procC", targetHandle: "in-0", type: "routed" },
+    { id: "e-a-merge", source: "procA", sourceHandle: "out-0", target: "merge", targetHandle: "in-0", type: "routed" },
+    { id: "e-b-merge", source: "procB", sourceHandle: "out-0", target: "merge", targetHandle: "in-1", type: "routed" },
+    { id: "e-c-merge", source: "procC", sourceHandle: "out-0", target: "merge", targetHandle: "in-2", type: "routed" },
+    { id: "e-a-b", source: "procA", sourceHandle: "out-1", target: "procB", targetHandle: "in-1", type: "routed" },
+  ]},
+  { key: "basic", label: "Basic", nodes: basicNodes, edges: basicEdges, skipLayout: false },
+  { key: "groups", label: "Groups", nodes: groupNodes, edges: groupEdges, skipLayout: true },
+  { key: "subflows", label: "Subflows", nodes: subflowNodes, edges: subflowEdges, skipLayout: true },
+  { key: "dag", label: "DAG", nodes: dagNodes, edges: dagEdges, layout: { direction: "TB", elkMode: "layered", spacing: 30 } },
+  { key: "tree", label: "Tree", nodes: treeNodes, edges: treeEdges, layout: { direction: "TB", elkMode: "mrtree", spacing: 20 } },
+  { key: "auto-layout", label: "Auto Layout", nodes: elkNodes, edges: elkEdges, layout: { direction: "LR", elkMode: "layered", spacing: 30 } },
+  { key: "auto-layout-groups", label: "Layout+Groups", nodes: autoLayoutGroupNodes, edges: autoLayoutGroupEdges, layout: { direction: "LR", elkMode: "layered", spacing: 30 } },
+  { key: "stress", label: "Stress (200)", nodes: stressNodes, edges: stressEdges, skipLayout: true },
+];
+
 // ---------------------------------------------------------------------------
 // Node / edge types
 // ---------------------------------------------------------------------------
@@ -103,78 +216,77 @@ const nodeTypes = {
   splitter: SplitterNode,
   merger: MergerNode,
   process: ProcessNode,
+  group: GroupNode,
+  basicMulti: BasicMultiNode,
 };
 
 const edgeTypes = { routed: RoutedEdge };
 
 // ---------------------------------------------------------------------------
-// Initial data
-// ---------------------------------------------------------------------------
-
-const initialNodes: Node[] = [
-  { id: "split", type: "splitter", position: { x: 50, y: 100 }, data: {} },
-  { id: "procA", type: "process", position: { x: 280, y: 30 }, data: { label: "Proc A" } },
-  { id: "procB", type: "process", position: { x: 280, y: 180 }, data: { label: "Proc B" } },
-  { id: "procC", type: "process", position: { x: 280, y: 330 }, data: { label: "Proc C" } },
-  { id: "merge", type: "merger", position: { x: 520, y: 100 }, data: {} },
-];
-
-const initialEdges: Edge[] = [
-  { id: "e-split-a", source: "split", sourceHandle: "out-0", target: "procA", targetHandle: "in-0", type: "routed" },
-  { id: "e-split-b", source: "split", sourceHandle: "out-1", target: "procB", targetHandle: "in-0", type: "routed" },
-  { id: "e-split-c", source: "split", sourceHandle: "out-2", target: "procC", targetHandle: "in-0", type: "routed" },
-  { id: "e-a-merge", source: "procA", sourceHandle: "out-0", target: "merge", targetHandle: "in-0", type: "routed" },
-  { id: "e-b-merge", source: "procB", sourceHandle: "out-0", target: "merge", targetHandle: "in-1", type: "routed" },
-  { id: "e-c-merge", source: "procC", sourceHandle: "out-0", target: "merge", targetHandle: "in-2", type: "routed" },
-  { id: "e-a-b", source: "procA", sourceHandle: "out-1", target: "procB", targetHandle: "in-1", type: "routed" },
-];
-
-// ---------------------------------------------------------------------------
-// Flow canvas (must be inside ReactFlowProvider)
+// Flow canvas
 // ---------------------------------------------------------------------------
 
 function FlowCanvas() {
-  const [nodes, setNodes] = useState<Node[]>(initialNodes);
-  const [edges, setEdges] = useState<Edge[]>(initialEdges);
-  const { getInternalNode } = useReactFlow();
+  const [activeExample, setActiveExample] = useState<ExampleKey>("multi-handle");
+  const [nodes, setNodes] = useState<Node[]>(EXAMPLES[0].nodes);
+  const [edges, setEdges] = useState<Edge[]>(EXAMPLES[0].edges);
+  const { getInternalNode, fitView } = useReactFlow();
+  const nodesRef = useRef(nodes);
+  const edgesRef = useRef(edges);
+  const resetRoutingRef = useRef<() => void>(() => {});
+  const withMeasuredRef = useRef<(nds: Node[]) => Node[]>((nds) => nds);
+  nodesRef.current = nodes;
+  edgesRef.current = edges;
 
-  // ---------------------------------------------------------------------------
-  // Leva settings panel — all libavoid options exposed
-  // ---------------------------------------------------------------------------
+  // Switch example — run layout, resolve collisions, reset routing
+  useEffect(() => {
+    const ex = EXAMPLES.find((e) => e.key === activeExample)!;
+    const doSwitch = async () => {
+      let prepared = expandGroups(ex.nodes);
+      const dir = ex.layout?.direction ?? "LR";
+      if (!ex.skipLayout && ex.layout) {
+        prepared = await runAutoLayout(prepared, ex.edges, {
+          algorithm: ex.layout.algorithm ?? "elk",
+          direction: dir,
+          spacing: ex.layout.spacing ?? 20,
+          elkMode: ex.layout.elkMode ?? "mrtree",
+        });
+        prepared = expandGroups(prepared);
+        prepared = resolveCollisions(prepared, { maxIterations: 50, overlapThreshold: 0.5, margin: 20 });
+      }
+      // Set handle positions based on layout direction
+      const { src, tgt } = handlePositionsForDirection(dir);
+      prepared = prepared.map((n) => n.type === "group" ? n : { ...n, sourcePosition: src, targetPosition: tgt });
+      setNodes(prepared);
+      setEdges(ex.edges);
+      setTimeout(() => {
+        resetRoutingRef.current();
+        fitView({ padding: 0.15 });
+      }, 150);
+    };
+    doSwitch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeExample]);
+
+  // Leva routing settings
   const {
-    connectorType,
-    edgeToEdgeSpacing,
-    edgeToNodeSpacing,
-    handleSpacing,
-    edgeRounding,
-    segmentPenalty,
-    anglePenalty,
-    reverseDirectionPenalty,
-    crossingPenalty,
-    hateCrossings,
-    pinInsideOffset,
-    nudgeOrthogonalSegmentsConnectedToShapes,
-    nudgeSharedPathsWithCommonEndPoint,
-    performUnifyingNudgingPreprocessingStep,
-    nudgeOrthogonalTouchingColinearSegments,
-    debounceMs,
-    realTimeRouting,
-  } = useControls({
-    // ---- Important settings (top level) ----
-    connectorType: {
-      value: "orthogonal" as ConnectorType,
-      options: ["orthogonal", "bezier", "polyline"] as ConnectorType[],
-      label: "Edge Style",
-    },
-    edgeToEdgeSpacing: { value: 4, min: 1, max: 40, step: 1, label: "Edge↔Edge" },
-    edgeToNodeSpacing: { value: 20, min: 1, max: 60, step: 1, label: "Edge↔Node" },
+    connectorType, edgeToEdgeSpacing, edgeToNodeSpacing, handleSpacing,
+    edgeRounding, segmentPenalty, anglePenalty, reverseDirectionPenalty,
+    crossingPenalty, hateCrossings, pinInsideOffset,
+    nudgeOrthogonalSegmentsConnectedToShapes, nudgeSharedPathsWithCommonEndPoint,
+    performUnifyingNudgingPreprocessingStep, nudgeOrthogonalTouchingColinearSegments,
+    debounceMs, realTimeRouting, autoBestSideConnection, hideHandles,
+  } = useControls("Routing", {
+    connectorType: { value: "orthogonal" as ConnectorType, options: ["orthogonal", "bezier", "polyline"] as ConnectorType[], label: "Edge Style" },
     edgeRounding: { value: 8, min: 0, max: 30, step: 1, label: "Rounding" },
+    edgeToEdgeSpacing: { value: 13, min: 1, max: 40, step: 1, label: "Edge↔Edge" },
+    edgeToNodeSpacing: { value: 8, min: 1, max: 60, step: 1, label: "Edge↔Node" },
+    autoBestSideConnection: { value: true, label: "Auto Best Side" },
     hateCrossings: { value: false, label: "Avoid Crossings" },
+    hideHandles: { value: true, label: "Hide Handles" },
     realTimeRouting: { value: false, label: "Route While Dragging" },
-
-    // ---- Advanced settings (folders) ----
     "Spacing": folder({
-      handleSpacing: { value: 20, min: 1, max: 60, step: 1, label: "Handle" },
+      handleSpacing: { value: 13, min: 1, max: 60, step: 1, label: "Handle" },
       pinInsideOffset: { value: 0, min: 0, max: 20, step: 1, label: "Pin Offset" },
     }, { collapsed: true }),
     "Penalties": folder({
@@ -194,83 +306,138 @@ function FlowCanvas() {
     }, { collapsed: true }),
   });
 
-  // Create enrichNode — reads exact handle positions from DOM via getInternalNode
-  const enrichNode = useMemo(
-    () => createEnrichNode(getInternalNode),
-    [getInternalNode]
-  );
-
-  // Wire up libavoid edge routing with all settings from panel
-  const { updateRoutingOnNodesChange } = useEdgeRouting(nodes, edges, {
-    connectorType,
-    edgeToEdgeSpacing,
-    edgeToNodeSpacing,
-    handleSpacing,
-    edgeRounding,
-    segmentPenalty,
-    anglePenalty,
-    reverseDirectionPenalty,
-    crossingPenalty,
-    hateCrossings,
-    pinInsideOffset,
-    nudgeOrthogonalSegmentsConnectedToShapes,
-    nudgeSharedPathsWithCommonEndPoint,
-    performUnifyingNudgingPreprocessingStep,
-    nudgeOrthogonalTouchingColinearSegments,
-    debounceMs,
-    realTimeRouting,
-    enrichNode,
+  // Leva layout settings
+  const layoutControls = useControls("Layout", {
+    algorithm: { value: "elk" as LayoutAlgorithmName, options: ["elk", "dagre"] as LayoutAlgorithmName[], label: "Algorithm" },
+    elkMode: { value: "mrtree" as ElkMode, options: ["layered", "stress", "mrtree", "force", "radial"] as ElkMode[], label: "ELK Mode" },
+    direction: { value: "LR" as LayoutDirection, options: { "→ Right": "LR", "↓ Down": "TB", "← Left": "RL", "↑ Up": "BT" } as Record<string, LayoutDirection>, label: "Direction" },
+    spacing: { value: 20, min: 10, max: 200, step: 10, label: "Spacing" },
+    resolveOverlaps: { value: true, label: "Fix Overlaps" },
+    "Run Layout": button(async (get) => {
+      const algo = get("Layout.algorithm") as LayoutAlgorithmName;
+      const elkM = get("Layout.elkMode") as ElkMode;
+      const dir = get("Layout.direction") as LayoutDirection;
+      const sp = get("Layout.spacing") as number;
+      const fix = get("Layout.resolveOverlaps") as boolean;
+      let laid = await runAutoLayout(nodesRef.current, edgesRef.current, { algorithm: algo, direction: dir, spacing: sp, elkMode: elkM });
+      laid = expandGroups(laid);
+      if (fix) laid = resolveCollisions(laid, { maxIterations: 50, overlapThreshold: 0.5, margin: 20 });
+      const { src, tgt } = handlePositionsForDirection(dir);
+      laid = laid.map((n) => n.type === "group" ? n : { ...n, sourcePosition: src, targetPosition: tgt });
+      setNodes(laid);
+      setTimeout(() => {
+        resetRoutingRef.current();
+        fitView({ padding: 0.15 });
+      }, 150);
+    }),
   });
 
-  const onNodesChange = useCallback(
-    (changes: NodeChange<Node>[]) => {
-      setNodes((nds) => applyNodeChanges(changes, nds));
-      updateRoutingOnNodesChange(changes);
-    },
-    [updateRoutingOnNodesChange]
-  );
+  const enrichNode = useMemo(() => createEnrichNode(getInternalNode), [getInternalNode]);
 
-  const onEdgesChange = useCallback(
-    (changes: EdgeChange<Edge>[]) => {
-      setEdges((eds) => applyEdgeChanges(changes, eds));
-    },
-    []
-  );
+  const { updateRoutingOnNodesChange, resetRouting } = useEdgeRouting(nodes, edges, {
+    connectorType, edgeToEdgeSpacing, edgeToNodeSpacing, handleSpacing, edgeRounding,
+    segmentPenalty, anglePenalty, reverseDirectionPenalty, crossingPenalty,
+    hateCrossings, pinInsideOffset, autoBestSideConnection,
+    nudgeOrthogonalSegmentsConnectedToShapes, nudgeSharedPathsWithCommonEndPoint,
+    performUnifyingNudgingPreprocessingStep, nudgeOrthogonalTouchingColinearSegments,
+    debounceMs, realTimeRouting, enrichNode,
+  });
+  resetRoutingRef.current = resetRouting;
 
-  const onConnect = useCallback(
-    (connection: Connection) => {
-      setEdges((eds) => addEdge({ ...connection, type: "routed" }, eds));
-    },
-    []
-  );
+
+  const onNodesChange = useCallback((changes: NodeChange<Node>[]) => {
+    setNodes((nds) => applyNodeChanges(changes, nds));
+    updateRoutingOnNodesChange(changes);
+  }, [updateRoutingOnNodesChange]);
+
+  const onEdgesChange = useCallback((changes: EdgeChange<Edge>[]) => {
+    setEdges((eds) => applyEdgeChanges(changes, eds));
+  }, []);
+
+  const onConnect = useCallback((connection: Connection) => {
+    setEdges((eds) => addEdge({ ...connection, type: "routed" }, eds));
+  }, []);
+
+  // Sync measured dimensions from React Flow's internal store into user nodes
+  const withMeasured = useCallback((nds: Node[]) =>
+    nds.map((n) => {
+      const internal = getInternalNode(n.id);
+      if (internal?.measured?.width && internal?.measured?.height) {
+        return { ...n, measured: internal.measured };
+      }
+      return n;
+    }),
+  [getInternalNode]);
+  withMeasuredRef.current = withMeasured;
+
+  const onNodeDragStop = useCallback(() => {
+    if (layoutControls.resolveOverlaps) {
+      setNodes((nds) => resolveCollisions(withMeasured(nds), { maxIterations: 50, overlapThreshold: 0.5, margin: 20 }));
+    }
+    // Wait for React Flow to internalize updated positions, then re-route
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      resetRouting();
+    }));
+  }, [layoutControls.resolveOverlaps, resetRouting, setNodes, withMeasured]);
 
   return (
-    <div style={{ width: "100%", height: "100%" }}>
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        nodeTypes={nodeTypes}
-        edgeTypes={edgeTypes}
-        fitView
-      >
-        <Background />
-        <Controls />
-      </ReactFlow>
+    <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column" }}>
+      {/* Tab bar */}
+      <div style={{ display: "flex", gap: 2, padding: "6px 10px", background: "#1e293b", flexShrink: 0, overflowX: "auto" }}>
+        {EXAMPLES.map((ex) => (
+          <button
+            key={ex.key}
+            onClick={() => setActiveExample(ex.key)}
+            style={{
+              padding: "5px 12px",
+              fontSize: 12,
+              fontFamily: "sans-serif",
+              fontWeight: activeExample === ex.key ? 600 : 400,
+              border: "none",
+              borderRadius: 6,
+              cursor: "pointer",
+              background: activeExample === ex.key ? "#3b82f6" : "transparent",
+              color: activeExample === ex.key ? "#fff" : "#94a3b8",
+              whiteSpace: "nowrap",
+              transition: "all 0.15s",
+            }}
+          >
+            {ex.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Canvas */}
+      <div style={{ flex: 1 }} className={hideHandles ? "hide-handles" : ""}>
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          onNodeDragStop={onNodeDragStop}
+          nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          fitView
+        >
+          <Background />
+          <Controls />
+          <MiniMap />
+        </ReactFlow>
+      </div>
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// App root — wraps in ReactFlowProvider so useReactFlow() works
+// App root
 // ---------------------------------------------------------------------------
 
 export default function App() {
   return (
     <ReactFlowProvider>
-      <Leva titleBar={{ title: "Edge Routing" }} />
+      <Leva titleBar={{ title: "Edge Routing" }} collapsed={false} />
+      <style>{`.hide-handles .react-flow__handle { visibility: hidden; }`}</style>
       <FlowCanvas />
     </ReactFlowProvider>
   );

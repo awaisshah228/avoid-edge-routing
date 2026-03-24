@@ -1932,7 +1932,6 @@ class ImproveOrthogonalRoutes {
 
     const doUnify = this.m_router.routingOption(performUnifyingNudgingPreprocessingStep) &&
         (this.m_router.routingParameter(fixedSharedPathPenalty) === 0);
-    console.log("[libavoid-js] nudging: doUnify=", doUnify, "segmentPenalty=", this.m_router.routingParameter(segmentPenalty), "idealNudging=", this.m_router.routingParameter(idealNudgingDistance));
 
     // Do Unifying first.
     if (doUnify) {
@@ -1940,7 +1939,6 @@ class ImproveOrthogonalRoutes {
         const justUnifying: boolean = true;
         this.m_segment_list = [];
         buildOrthogonalNudgingSegments(this.m_router, dimension, this.m_segment_list);
-        console.log(`[libavoid-js] unify dim=${dimension}: ${this.m_segment_list.length} segments`);
         buildOrthogonalChannelInfo(this.m_router, dimension, this.m_segment_list);
         this.nudgeOrthogonalRoutes(dimension, justUnifying);
       }
@@ -1953,7 +1951,6 @@ class ImproveOrthogonalRoutes {
 
       this.m_segment_list = [];
       buildOrthogonalNudgingSegments(this.m_router, dimension, this.m_segment_list);
-      console.log(`[libavoid-js] nudge dim=${dimension}: ${this.m_segment_list.length} segments`);
       buildOrthogonalChannelInfo(this.m_router, dimension, this.m_segment_list);
       this.nudgeOrthogonalRoutes(dimension);
     }
@@ -2295,8 +2292,6 @@ class ImproveOrthogonalRoutes {
 // ===========================================================================
 
 export function improveOrthogonalRoutes(router: Router): void {
-  console.log("[libavoid-js] improveOrthogonalRoutes called, connRefs:", (router as any).connRefs?.length ?? 0);
   const improver = new ImproveOrthogonalRoutes(router);
   improver.execute();
-  console.log("[libavoid-js] improveOrthogonalRoutes done");
 }

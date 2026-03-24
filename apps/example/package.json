@@ -8,13 +8,17 @@
     "build": "tsc && vite build"
   },
   "dependencies": {
+    "@dagrejs/dagre": "^3.0.0",
     "@xyflow/react": "^12.6.2",
-    "reactflow-edge-routing": "*",
+    "d3-hierarchy": "^3.1.2",
+    "elkjs": "^0.11.1",
     "leva": "^0.10.1",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "reactflow-edge-routing": "*"
   },
   "devDependencies": {
+    "@types/d3-hierarchy": "^3.1.7",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.0",

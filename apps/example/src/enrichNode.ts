@@ -3,9 +3,8 @@
  * measurements and converts them to proportional _handlePins for the
  * edge-routing worker.
  *
- * Uses `getInternalNode()` to access React Flow's internal handle bounds —
- * these are the actual pixel positions of each <Handle> element after all
- * CSS transforms are applied. This is the single source of truth.
+ * Works with ANY node type — custom multi-handle nodes and default nodes alike.
+ * Uses `getInternalNode()` to access React Flow's internal handle bounds.
  */
 
 import type { Node, ReactFlowInstance } from "@xyflow/react";
@@ -14,22 +13,9 @@ import type { HandlePin } from "reactflow-edge-routing";
 type HandlePosition = "left" | "right" | "top" | "bottom";
 
 export interface EnrichNodeOptions {
-  /**
-   * Extra height (px) to add to the libavoid obstacle beyond the node's
-   * measured height. Useful for labels/data areas below the shape.
-   * @default 0
-   */
   extraHeight?: number;
 }
 
-/**
- * Creates a function that enriches a node with _handlePins by reading
- * exact DOM-measured handle positions from React Flow's internal state.
- *
- * @param getInternalNode - from `useReactFlow().getInternalNode`
- * @param options - extra height, etc.
- * @returns `(node: Node) => Node` with `_handlePins` attached
- */
 export function createEnrichNode(
   getInternalNode: ReactFlowInstance["getInternalNode"],
   options?: EnrichNodeOptions
@@ -37,11 +23,15 @@ export function createEnrichNode(
   const extraHeight = options?.extraHeight ?? 0;
 
   return (node: Node): Node => {
+    // Skip group nodes — they're containers, not obstacles with pins
+    if (node.type === "group") return node;
+
     const internal = getInternalNode(node.id);
     if (!internal) return node;
 
-    const measuredW = node.measured?.width ?? (node.width as number | undefined);
-    const measuredH = node.measured?.height ?? (node.height as number | undefined);
+    const style = node.style as { width?: number; height?: number } | undefined;
+    const measuredW = node.measured?.width ?? style?.width ?? (node.width as number | undefined);
+    const measuredH = node.measured?.height ?? style?.height ?? (node.height as number | undefined);
     if (!measuredW || !measuredH) return node;
 
     const handleBounds = internal.internals?.handleBounds;
@@ -50,17 +40,26 @@ export function createEnrichNode(
     const totalH = measuredH + extraHeight;
     const pins: HandlePin[] = [];
 
-    const allHandles = [
-      ...(handleBounds.source ?? []),
-      ...(handleBounds.target ?? []),
-    ];
+    const sourceHandles = handleBounds.source ?? [];
+    const targetHandles = handleBounds.target ?? [];
+    const allHandles = [...sourceHandles, ...targetHandles];
+
+    // Track handle counts per type for auto-generating IDs when handles have no id
+    let sourceIdx = 0;
+    let targetIdx = 0;
 
     for (const h of allHandles) {
-      if (!h.id) continue;
+      const isSource = sourceHandles.includes(h);
 
-      // h.x, h.y = handle element's top-left after CSS transforms
-      // h.width, h.height = handle element size
-      // We want the CENTER of the handle dot:
+      // Skip default handles (no explicit id) — let the router decide via autoBestSide
+      if (!h.id) {
+        if (isSource) sourceIdx++; else targetIdx++;
+        continue;
+      }
+
+      const handleId = h.id;
+      if (isSource) sourceIdx++; else targetIdx++;
+
       const cx = h.x + h.width / 2;
       const cy = h.y + h.height / 2;
 
@@ -69,9 +68,9 @@ export function createEnrichNode(
         inferSide(cx, cy, measuredW, measuredH);
 
       pins.push({
-        handleId: h.id,
-        xPct: cx / measuredW,
-        yPct: cy / totalH,
+        handleId,
+        xPct: Math.max(0, Math.min(1, cx / measuredW)),
+        yPct: Math.max(0, Math.min(1, cy / totalH)),
         side,
       });
     }
@@ -80,10 +79,6 @@ export function createEnrichNode(
   };
 }
 
-/**
- * Infer which side a handle is on by checking which edge of the node
- * the handle center is closest to.
- */
 function inferSide(x: number, y: number, w: number, h: number): HandlePosition {
   const distLeft = x;
   const distRight = w - x;

@@ -223,6 +223,89 @@ export class Geometry {
     return b;
   }
 
+  /**
+   * Pre-compute group bounds from children.
+   * For groups with expandParent or small initial size, compute the actual
+   * bounding box from children positions + sizes and update the group's
+   * style.width/height so the router sees correct dimensions.
+   */
+  static computeGroupBounds(nodes: FlowNode[], padding = 20): FlowNode[] {
+    const childrenByParent = new Map<string, FlowNode[]>();
+    for (const node of nodes) {
+      if (node.parentId) {
+        if (!childrenByParent.has(node.parentId)) childrenByParent.set(node.parentId, []);
+        childrenByParent.get(node.parentId)!.push(node);
+      }
+    }
+
+    const nodeById = new Map(nodes.map((n) => [n.id, n]));
+    const computedSizes = new Map<string, { width: number; height: number }>();
+
+    // Bottom-up: compute sizes for deepest groups first
+    function computeSize(groupId: string): { width: number; height: number } {
+      const cached = computedSizes.get(groupId);
+      if (cached) return cached;
+
+      const children = childrenByParent.get(groupId) ?? [];
+      if (children.length === 0) {
+        const node = nodeById.get(groupId);
+        return node ? { width: Geometry.getNodeBounds(node).w, height: Geometry.getNodeBounds(node).h } : { width: 150, height: 50 };
+      }
+
+      let maxRight = 0;
+      let maxBottom = 0;
+
+      for (const child of children) {
+        // Recursively compute if child is also a group
+        if (child.type === "group" && childrenByParent.has(child.id)) {
+          const childSize = computeSize(child.id);
+          computedSizes.set(child.id, childSize);
+        }
+        const childBounds = Geometry.getNodeBounds(child);
+        const childSize = computedSizes.get(child.id);
+        const w = childSize?.width ?? childBounds.w;
+        const h = childSize?.height ?? childBounds.h;
+        maxRight = Math.max(maxRight, childBounds.x + w);
+        maxBottom = Math.max(maxBottom, childBounds.y + h);
+      }
+
+      const size = {
+        width: maxRight + padding,
+        height: maxBottom + padding,
+      };
+      computedSizes.set(groupId, size);
+      return size;
+    }
+
+    // Compute all groups
+    for (const node of nodes) {
+      if (node.type === "group" && childrenByParent.has(node.id)) {
+        computeSize(node.id);
+      }
+    }
+
+    // Apply computed sizes to group nodes
+    if (computedSizes.size === 0) return nodes;
+
+    return nodes.map((node) => {
+      const size = computedSizes.get(node.id);
+      if (!size) return node;
+      const currentBounds = Geometry.getNodeBounds(node);
+      // Only override if computed is larger than current
+      if (size.width > currentBounds.w || size.height > currentBounds.h) {
+        return {
+          ...node,
+          style: {
+            ...((node.style ?? {}) as Record<string, unknown>),
+            width: Math.max(size.width, currentBounds.w),
+            height: Math.max(size.height, currentBounds.h),
+          },
+        };
+      }
+      return node;
+    });
+  }
+
   static getHandlePosition(node: FlowNode, kind: "source" | "target"): HandlePosition {
     const raw =
       kind === "source"
@@ -465,12 +548,17 @@ export class HandleSpacing {
     const segStart = end === "source" ? 0 : firstPts.length - 2;
     const isHorizontal = Math.abs(firstPts[segStart + 1].x - firstPts[segStart].x) > Math.abs(firstPts[segStart + 1].y - firstPts[segStart].y);
     const axis = isHorizontal ? "y" : "x";
-    const center = positions.map((p) => p.pt[axis]).reduce((a, b) => a + b, 0) / positions.length;
-    for (const edgeId of edgeIds) {
-      const pts = edgePoints.get(edgeId);
-      if (!pts || pts.length < 2) continue;
-      for (const idx of (end === "source" ? [0, 1] : [pts.length - 1, pts.length - 2])) {
-        pts[idx][axis] = center + (pts[idx][axis] - center) * ratio;
+    const values = positions.map((p) => p.pt[axis]);
+    const center = values.reduce((a, b) => a + b, 0) / values.length;
+    const spread = Math.max(...values) - Math.min(...values);
+
+    if (spread > 0.5) {
+      for (const edgeId of edgeIds) {
+        const pts = edgePoints.get(edgeId);
+        if (!pts || pts.length < 2) continue;
+        for (const idx of (end === "source" ? [0, 1] : [pts.length - 1, pts.length - 2])) {
+          pts[idx][axis] = center + (pts[idx][axis] - center) * ratio;
+        }
       }
     }
   }
@@ -496,16 +584,6 @@ class PinRegistry {
 // ---- Router configuration ----
 
 function configureRouter(router: AvoidRouter, options: AvoidRouterOptions): void {
-  console.log("[routing-core] configureRouter:", {
-    shapeBufferDistance: options.shapeBufferDistance ?? 8,
-    idealNudgingDistance: options.idealNudgingDistance ?? 10,
-    segmentPenalty: options.segmentPenalty ?? 10,
-    connectorType: options.connectorType ?? "orthogonal",
-    hateCrossings: options.hateCrossings ?? false,
-    nudgeOrthSegConnToShapes: options.nudgeOrthogonalSegmentsConnectedToShapes ?? true,
-    nudgeSharedPaths: options.nudgeSharedPathsWithCommonEndPoint ?? true,
-    performUnifyNudge: options.performUnifyingNudgingPreprocessingStep ?? true,
-  });
   // --- Routing parameters ---
   router.setRoutingParameter(shapeBufferDistanceParam, options.shapeBufferDistance ?? 8);
   router.setRoutingParameter(idealNudgingDistanceParam, options.idealNudgingDistance ?? 10);
@@ -554,10 +632,8 @@ function createObstacles(
   const obstacleNodes = nodes.filter((n) => n.type !== "group");
   const insideOffset = options.pinInsideOffset ?? 0;
 
-  console.log(`[routing-core] Creating ${obstacleNodes.length} obstacles, insideOffset=${insideOffset}`);
   for (const node of obstacleNodes) {
     const b = Geometry.getNodeBoundsAbsolute(node, nodeById);
-    console.log(`  obstacle "${node.id}": (${b.x},${b.y}) ${b.w}x${b.h}, pins: ${((node._handlePins as HandlePin[] | undefined) ?? []).map(p => `${p.handleId}@${p.side}(${p.xPct.toFixed(2)},${p.yPct.toFixed(2)})`).join(", ") || "none"}`);
     const topLeft = new AvoidPoint(b.x, b.y);
     const bottomRight = new AvoidPoint(b.x + b.w, b.y + b.h);
     const rect = new AvoidRectangle(topLeft, bottomRight);
@@ -578,37 +654,44 @@ function createObstacles(
         sp.setConnectionCost(pin.cost);
       }
     }
+
+    // Pre-create auto pins on all 4 sides sharing the SAME pinClassId.
+    // This lets libavoid choose the best side during routing instead of
+    // us pre-selecting one side with a naive heuristic.
+    const autoId = pinRegistry.getOrCreate(node.id, `__auto_best`);
+    const sides: HandlePosition[] = ["top", "bottom", "left", "right"];
+    for (const side of sides) {
+      let xPct: number, yPct: number;
+      switch (side) {
+        case "left":   xPct = 0;   yPct = 0.5; break;
+        case "right":  xPct = 1;   yPct = 0.5; break;
+        case "top":    xPct = 0.5; yPct = 0;   break;
+        case "bottom": xPct = 0.5; yPct = 1;   break;
+      }
+      const dir = Geometry.sideToDir(side);
+      const autoSp = AvoidShapeConnectionPin.createForShape(
+        shapeRef as any, autoId, xPct, yPct, true, insideOffset, dir
+      );
+      autoSp.setExclusive(false);
+    }
   }
 
   return { shapeRefMap, shapeRefList };
 }
 
-function ensureAutoPin(
-  node: FlowNode,
-  shapeRef: AvoidShapeRef,
-  side: HandlePosition,
-  pinRegistry: PinRegistry,
-  insideOffset: number
-): number {
-  const autoHandleId = `__auto_${side}`;
-  const pinId = pinRegistry.getOrCreate(node.id, autoHandleId);
 
-  // Compute proportional position for center of the given side
-  let xPct: number, yPct: number;
-  switch (side) {
-    case "left":   xPct = 0;   yPct = 0.5; break;
-    case "right":  xPct = 1;   yPct = 0.5; break;
-    case "top":    xPct = 0.5; yPct = 0;   break;
-    case "bottom": xPct = 0.5; yPct = 1;   break;
-  }
-
-  const dir = Geometry.sideToDir(side);
-  const sp = AvoidShapeConnectionPin.createForShape(
-    shapeRef as any, pinId, xPct, yPct, true, insideOffset, dir
-  );
-  sp.setExclusive(false);
-  return pinId;
+/**
+ * Find the first enriched pin matching a handle type (source/target).
+ * Used when edge.sourceHandle/targetHandle is null (default handles).
+ */
+function findDefaultHandle(node: FlowNode, kind: "source" | "target"): string | null {
+  const pins = (node._handlePins as HandlePin[] | undefined) ?? [];
+  // Enriched pins from default handles are named __source_N or __target_N
+  const prefix = `__${kind}_`;
+  const pin = pins.find((p) => p.handleId.startsWith(prefix));
+  return pin?.handleId ?? null;
 }
+
 
 function createConnections(
   router: AvoidRouter,
@@ -619,13 +702,10 @@ function createConnections(
   options: AvoidRouterOptions
 ): { edgeId: string; connRef: AvoidConnRef }[] {
   const connRefs: { edgeId: string; connRef: AvoidConnRef }[] = [];
-  const createdAutoPins = new Set<string>();
   const autoBestSide = options.autoBestSideConnection ?? true;
   const connType = getConnType(options.connectorType);
   const hateCrossings = options.hateCrossings ?? false;
-  const insideOffset = options.pinInsideOffset ?? 0;
 
-  console.log(`[routing-core] Creating ${edges.length} connections, connType=${connType}, autoBestSide=${autoBestSide}, hateCrossings=${hateCrossings}`);
   for (const edge of edges) {
     const src = nodeById.get(edge.source);
     const tgt = nodeById.get(edge.target);
@@ -634,54 +714,39 @@ function createConnections(
     const srcShapeRef = shapeRefMap.get(edge.source);
     const tgtShapeRef = shapeRefMap.get(edge.target);
 
-    // Determine best sides when handles aren't provided
     const srcBounds = Geometry.getNodeBoundsAbsolute(src, nodeById);
     const tgtBounds = Geometry.getNodeBoundsAbsolute(tgt, nodeById);
-    const bestSides = autoBestSide
-      ? Geometry.getBestSides(srcBounds, tgtBounds)
-      : {
-          sourcePos: Geometry.getHandlePosition(src, "source"),
-          targetPos: Geometry.getHandlePosition(tgt, "target"),
-        };
 
-    // Source end
+    // Priority: explicit handle > auto best (libavoid picks from all 4 sides) > fixed side pin > point fallback
     let srcEnd: AvoidConnEnd;
-    if (srcShapeRef && edge.sourceHandle) {
-      const pinId = pinRegistry.getOrCreate(edge.source, edge.sourceHandle);
+    const srcHandle = edge.sourceHandle ?? (autoBestSide ? null : findDefaultHandle(src, "source"));
+    if (srcShapeRef && srcHandle) {
+      // Explicit handle ID or enriched default pin — exact position
+      const pinId = pinRegistry.getOrCreate(edge.source, srcHandle);
       srcEnd = AvoidConnEnd.fromShapePin(srcShapeRef as any, pinId);
+    } else if (srcShapeRef && autoBestSide) {
+      // All 4 auto pins share `__auto_best` — libavoid picks the optimal side
+      srcEnd = AvoidConnEnd.fromShapePin(srcShapeRef as any, pinRegistry.getOrCreate(edge.source, `__auto_best`));
     } else if (srcShapeRef) {
-      const side = bestSides.sourcePos;
-      const autoKey = `${edge.source}:${side}`;
-      if (!createdAutoPins.has(autoKey)) {
-        ensureAutoPin(src, srcShapeRef, side, pinRegistry, insideOffset);
-        createdAutoPins.add(autoKey);
-      }
-      const pinId = pinRegistry.getOrCreate(edge.source, `__auto_${side}`);
-      srcEnd = AvoidConnEnd.fromShapePin(srcShapeRef as any, pinId);
+      srcEnd = AvoidConnEnd.fromShapePin(srcShapeRef as any, pinRegistry.getOrCreate(edge.source, `__auto_best`));
     } else {
-      const pos = bestSides.sourcePos;
-      const pt = Geometry.getHandlePoint(srcBounds, pos);
-      srcEnd = AvoidConnEnd.fromPoint(new AvoidPoint(pt.x, pt.y));
+      const side = autoBestSide ? Geometry.getBestSides(srcBounds, tgtBounds).sourcePos : Geometry.getHandlePosition(src, "source");
+      srcEnd = (() => { const pt = Geometry.getHandlePoint(srcBounds, side); return AvoidConnEnd.fromPoint(new AvoidPoint(pt.x, pt.y)); })();
     }
 
-    // Target end
     let tgtEnd: AvoidConnEnd;
-    if (tgtShapeRef && edge.targetHandle) {
-      const pinId = pinRegistry.getOrCreate(edge.target, edge.targetHandle);
+    const tgtHandle = edge.targetHandle ?? (autoBestSide ? null : findDefaultHandle(tgt, "target"));
+    if (tgtShapeRef && tgtHandle) {
+      const pinId = pinRegistry.getOrCreate(edge.target, tgtHandle);
       tgtEnd = AvoidConnEnd.fromShapePin(tgtShapeRef as any, pinId);
+    } else if (tgtShapeRef && autoBestSide) {
+      // All 4 auto pins share `__auto_best` — libavoid picks the optimal side
+      tgtEnd = AvoidConnEnd.fromShapePin(tgtShapeRef as any, pinRegistry.getOrCreate(edge.target, `__auto_best`));
     } else if (tgtShapeRef) {
-      const side = bestSides.targetPos;
-      const autoKey = `${edge.target}:${side}`;
-      if (!createdAutoPins.has(autoKey)) {
-        ensureAutoPin(tgt, tgtShapeRef, side, pinRegistry, insideOffset);
-        createdAutoPins.add(autoKey);
-      }
-      const pinId = pinRegistry.getOrCreate(edge.target, `__auto_${side}`);
-      tgtEnd = AvoidConnEnd.fromShapePin(tgtShapeRef as any, pinId);
+      tgtEnd = AvoidConnEnd.fromShapePin(tgtShapeRef as any, pinRegistry.getOrCreate(edge.target, `__auto_best`));
     } else {
-      const pos = bestSides.targetPos;
-      const pt = Geometry.getHandlePoint(tgtBounds, pos);
-      tgtEnd = AvoidConnEnd.fromPoint(new AvoidPoint(pt.x, pt.y));
+      const side = autoBestSide ? Geometry.getBestSides(srcBounds, tgtBounds).targetPos : Geometry.getHandlePosition(tgt, "target");
+      tgtEnd = (() => { const pt = Geometry.getHandlePoint(tgtBounds, side); return AvoidConnEnd.fromPoint(new AvoidPoint(pt.x, pt.y)); })();
     }
 
     const connRef = new AvoidConnRef(router as any, srcEnd, tgtEnd);
@@ -699,7 +764,6 @@ function createConnections(
       connRef.setRoutingCheckpoints(checkpoints);
     }
 
-    console.log(`  edge "${edge.id}": ${edge.source}${edge.sourceHandle ? ':' + edge.sourceHandle : ''} → ${edge.target}${edge.targetHandle ? ':' + edge.targetHandle : ''}, srcShape=${!!srcShapeRef}, tgtShape=${!!tgtShapeRef}`);
     connRefs.push({ edgeId: edge.id, connRef });
   }
 
@@ -710,12 +774,14 @@ function createConnections(
 
 export class RoutingEngine {
   static routeAll(
-    nodes: FlowNode[],
+    rawNodes: FlowNode[],
     edges: FlowEdge[],
     options?: AvoidRouterOptions
   ): Record<string, AvoidRoute> {
     const opts = options ?? {};
     const gridSize = opts.diagramGridSize ?? 0;
+    // Pre-compute group bounds so groups with expandParent have correct sizes
+    const nodes = Geometry.computeGroupBounds(rawNodes);
     const nodeById = new Map(nodes.map((n) => [n.id, n]));
     const pinRegistry = new PinRegistry();
 
@@ -727,15 +793,26 @@ export class RoutingEngine {
     const connRefs = createConnections(router, edges, nodeById, shapeRefMap, pinRegistry, opts);
 
     const result: Record<string, AvoidRoute> = {};
-    try { router.processTransaction(); } catch { RoutingEngine.cleanup(router, connRefs, shapeRefList); return result; }
+    try { router.processTransaction(); } catch (e) { console.error("[edge-routing] processTransaction failed:", e); RoutingEngine.cleanup(router, connRefs, shapeRefList); return result; }
 
-    // Read routed points directly — no post-processing. libavoid already nudged them.
+    // Read routed points directly from libavoid
     const edgePoints = RoutingEngine.extractRoutePoints(connRefs);
+
+    // Adjust spacing at shared handles (fan-out effect)
+    const idealNudging = opts.idealNudgingDistance ?? 10;
+    const handleNudging = opts.handleNudgingDistance ?? idealNudging;
+    if (handleNudging !== idealNudging && edgePoints.size > 0) {
+      HandleSpacing.adjust(edges, edgePoints, handleNudging, idealNudging);
+    }
+
     const connType = opts.connectorType ?? "orthogonal";
     for (const [edgeId, points] of edgePoints) {
+      const edgeRounding = opts.edgeRounding ?? 0;
       const path = connType === "bezier"
         ? PathBuilder.routedBezierPath(points)
-        : PathBuilder.pointsToSvgPath(points);
+        : edgeRounding > 0
+          ? PathBuilder.polylineToPath(points.length, (i) => points[i], { cornerRadius: edgeRounding })
+          : PathBuilder.pointsToSvgPath(points);
       const mid = Math.floor(points.length / 2);
       const midP = points[mid];
       const labelP = gridSize > 0 ? Geometry.snapToGrid(midP.x, midP.y, gridSize) : midP;
@@ -844,6 +921,10 @@ export class PersistentRouter {
   private buildRouter(): Record<string, AvoidRoute> {
     const opts = this.prevOptions;
 
+    // Pre-compute group bounds so groups with expandParent have correct sizes
+    this.prevNodes = Geometry.computeGroupBounds(this.prevNodes);
+    this.nodeById = new Map(this.prevNodes.map((n) => [n.id, n]));
+
     // Clean up previous
     if (this.router) {
       try { RoutingEngine.cleanup(this.router, this.connRefList, this.shapeRefList); } catch { /* ok */ }
@@ -867,25 +948,28 @@ export class PersistentRouter {
 
   private readRoutes(): Record<string, AvoidRoute> {
     const opts = this.prevOptions;
+    const idealNudging = opts.idealNudgingDistance ?? 10;
+    const handleNudging = opts.handleNudgingDistance ?? idealNudging;
     const gridSize = opts.diagramGridSize ?? 0;
     const result: Record<string, AvoidRoute> = {};
 
-    // Read routed points directly from libavoid — no post-processing.
+    // Read routed points directly from libavoid
     const edgePoints = RoutingEngine.extractRoutePoints(this.connRefList);
 
-    // DEBUG: Log raw points from libavoid
-    console.log("[routing-core] Raw points from libavoid:");
-    for (const [edgeId, points] of edgePoints) {
-      console.log(`  ${edgeId}: ${points.length} pts → [${points.map(p => `(${p.x.toFixed(1)},${p.y.toFixed(1)})`).join(" → ")}]`);
+    // Adjust spacing at shared handles (fan-out effect)
+    if (handleNudging !== idealNudging && edgePoints.size > 0) {
+      HandleSpacing.adjust(this.prevEdges, edgePoints, handleNudging, idealNudging);
     }
 
     const connType = opts.connectorType ?? "orthogonal";
     for (const [edgeId, points] of edgePoints) {
+      const edgeRounding = opts.edgeRounding ?? 0;
       const path = connType === "bezier"
         ? PathBuilder.routedBezierPath(points)
-        : PathBuilder.pointsToSvgPath(points);
+        : edgeRounding > 0
+          ? PathBuilder.polylineToPath(points.length, (i) => points[i], { cornerRadius: edgeRounding })
+          : PathBuilder.pointsToSvgPath(points);
 
-      console.log(`[routing-core] ${edgeId} path: ${path.substring(0, 120)}...`);
 
       const mid = Math.floor(points.length / 2);
       const midP = points[mid];

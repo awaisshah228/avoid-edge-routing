@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(pkill -f \"vite\")",
-      "Bash(find /Users/awaisshah228/Documents/avoid-edge-routing -path */node_modules/libavoid-js -maxdepth 5 -type d)"
+      "Bash(find /Users/awaisshah228/Documents/avoid-edge-routing -path */node_modules/libavoid-js -maxdepth 5 -type d)",
+      "Bash(wc -l /Users/awaisshah228/Documents/avoid-edge-routing/refrence/avoid-nodes-pro-example/packages/avoid-nodes-edge/src/*.ts* /Users/awaisshah228/Documents/avoid-edge-routing/refrence/biocon/packages/edge-routing/src/*.ts*)",
+      "Bash(sed -i '' '/console\\\\.log.*\\\\[routing-core\\\\]/d' packages/reactflow-edge-routing/src/routing-core.ts)",
+      "Bash(sed -i '' '/console\\\\.log.*obstacle\\\\|console\\\\.log.*edge.*srcShape/d' packages/reactflow-edge-routing/src/routing-core.ts)"
     ]
   }
 }

@@ -6,21 +6,6 @@ import type { ConnectorType } from "./routing-core";
 
 export type Position = "left" | "right" | "top" | "bottom";
 
-const STALE_THRESHOLD_PX = 50;
-
-function isRouteStale(
-  route: { sourceX: number; sourceY: number; targetX: number; targetY: number },
-  sourceX: number, sourceY: number,
-  targetX: number, targetY: number,
-): boolean {
-  return (
-    Math.abs(route.sourceX - sourceX) > STALE_THRESHOLD_PX ||
-    Math.abs(route.sourceY - sourceY) > STALE_THRESHOLD_PX ||
-    Math.abs(route.targetX - targetX) > STALE_THRESHOLD_PX ||
-    Math.abs(route.targetY - targetY) > STALE_THRESHOLD_PX
-  );
-}
-
 const RF_POS: Record<Position, RFPosition> = {
   left: "left" as RFPosition,
   right: "right" as RFPosition,
@@ -39,9 +24,7 @@ export interface UseRoutedEdgePathParams {
   borderRadius?: number;
   offset?: number;
   connectorType?: ConnectorType;
-  /** Source node ID — used to detect if connected node is being dragged */
   source?: string;
-  /** Target node ID — used to detect if connected node is being dragged */
   target?: string;
 }
 
@@ -76,9 +59,9 @@ function getFallback(
 /**
  * Returns [path, labelX, labelY, wasRouted] for a routed edge.
  *
- * - While a connected node is being dragged → dashed fallback preview
- * - If a fresh routed path is available → solid routed path
- * - Otherwise → dashed fallback preview
+ * - While a connected node is being dragged → dashed fallback
+ * - If a routed path exists for this edge → solid routed path
+ * - No route yet (worker hasn't responded) → dashed fallback
  */
 export function useRoutedEdgePath(
   params: UseRoutedEdgePathParams
@@ -93,19 +76,19 @@ export function useRoutedEdgePath(
   const draggingNodeIds = useEdgeRoutingStore((s) => s.draggingNodeIds);
 
   return useMemo(() => {
-    // If a connected node is being dragged, always show fallback
-    const isConnectedNodeDragging =
+    // If a connected node is being dragged, show fallback
+    const isDragging =
       draggingNodeIds.size > 0 &&
       ((source != null && draggingNodeIds.has(source)) ||
        (target != null && draggingNodeIds.has(target)));
 
-    if (isConnectedNodeDragging) {
+    if (isDragging) {
       const [path, lx, ly] = getFallback(sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, connectorType, params.borderRadius, offset);
       return [path, lx, ly, false];
     }
 
-    // If we have a fresh routed path, use it
-    if (route && !isRouteStale(route, sourceX, sourceY, targetX, targetY)) {
+    // If we have a routed path, use it (no stale check — trust the router)
+    if (route?.path) {
       return [route.path, route.labelX, route.labelY, true];
     }
 

@@ -83,8 +83,8 @@ export interface UseEdgeRoutingResult {
 const DEFAULT_OPTIONS: UseEdgeRoutingOptions = {
   edgeRounding: 8,
   edgeToEdgeSpacing: 10,
-  edgeToNodeSpacing: 12,
-  handleSpacing: 20,
+  edgeToNodeSpacing: 8,
+  handleSpacing: 2,
   diagramGridSize: 0,
   autoBestSideConnection: false,
   debounceMs: 0,
@@ -163,7 +163,9 @@ export function useEdgeRouting(
   const sendReset = useCallback(() => {
     if (!workerLoaded) return;
     const nodes = nodesRef.current;
-    const hasMeasured = nodes.length === 0 || nodes.some((n) => n.measured?.width != null);
+    // Wait until all non-group nodes are measured (groups expand from children)
+    const nonGroupNodes = nodes.filter((n) => n.type !== "group");
+    const hasMeasured = nonGroupNodes.length === 0 || nonGroupNodes.every((n) => n.measured?.width != null || (n.style as { width?: number } | undefined)?.width != null);
     if (!hasMeasured) return;
     nodesMeasuredRef.current = true;
     const edges = edgesRef.current;

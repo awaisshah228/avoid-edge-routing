@@ -1,18 +1,25 @@
+/**
+ * Node collision resolution — pushes overlapping nodes apart iteratively.
+ *
+ * Supports arbitrarily nested subflows: resolves innermost siblings first
+ * (bottom-up), so parent group sizes are always based on already-resolved
+ * child positions.
+ */
+
 import type { Node } from '@xyflow/react';
 
-/** Extra height added below the shape for label + data area. */
-const LABEL_H = 20;
-const DATA_AREA_H = 40;
+const DEFAULT_NODE_WIDTH = 150;
+const DEFAULT_NODE_HEIGHT = 50;
 
 export type CollisionAlgorithmOptions = {
-  maxIterations: number;
-  overlapThreshold: number;
-  margin: number;
+  maxIterations?: number;
+  overlapThreshold?: number;
+  margin?: number;
 };
 
 export type CollisionAlgorithm = (
   nodes: Node[],
-  options: CollisionAlgorithmOptions,
+  options?: CollisionAlgorithmOptions,
 ) => Node[];
 
 type Box = {
@@ -24,91 +31,185 @@ type Box = {
   node: Node;
 };
 
-function getBoxesFromNodes(nodes: Node[], margin = 0): Box[] {
-  const boxes: Box[] = new Array(nodes.length);
+// ── Size helpers ─────────────────────────────────────────────────
 
-  for (let i = 0; i < nodes.length; i++) {
-    const node = nodes[i];
-    const extraH = ((node as Record<string, unknown>)._extraHeight as number) ?? (LABEL_H + DATA_AREA_H);
-    boxes[i] = {
+function getNodeSizeSimple(node: Node): { width: number; height: number } {
+  const style = node.style as { width?: number; height?: number } | undefined;
+  const w = node.measured?.width ?? node.width ?? style?.width ?? DEFAULT_NODE_WIDTH;
+  const h = node.measured?.height ?? node.height ?? style?.height ?? DEFAULT_NODE_HEIGHT;
+  return { width: Number(w) || DEFAULT_NODE_WIDTH, height: Number(h) || DEFAULT_NODE_HEIGHT };
+}
+
+/**
+ * Compute the actual size of a group node from its children, recursively.
+ * Works for any nesting depth.
+ */
+function computeGroupSize(
+  nodeId: string,
+  childrenByParent: Map<string, Node[]>,
+  nodeById: Map<string, Node>
+): { width: number; height: number } {
+  const children = childrenByParent.get(nodeId);
+  if (!children || children.length === 0) {
+    const node = nodeById.get(nodeId);
+    return node ? getNodeSizeSimple(node) : { width: DEFAULT_NODE_WIDTH, height: DEFAULT_NODE_HEIGHT };
+  }
+
+  let maxRight = 0;
+  let maxBottom = 0;
+
+  for (const child of children) {
+    const childSize = child.type === "group"
+      ? computeGroupSize(child.id, childrenByParent, nodeById)
+      : getNodeSizeSimple(child);
+    const right = child.position.x + childSize.width;
+    const bottom = child.position.y + childSize.height;
+    if (right > maxRight) maxRight = right;
+    if (bottom > maxBottom) maxBottom = bottom;
+  }
+
+  const padding = 20;
+  return {
+    width: maxRight + padding,
+    height: maxBottom + padding,
+  };
+}
+
+function getNodeSize(
+  node: Node,
+  childrenByParent: Map<string, Node[]>,
+  nodeById: Map<string, Node>
+): { width: number; height: number } {
+  if (node.measured?.width && node.measured?.height) {
+    return { width: node.measured.width, height: node.measured.height };
+  }
+  if (node.type === "group") {
+    return computeGroupSize(node.id, childrenByParent, nodeById);
+  }
+  return getNodeSizeSimple(node);
+}
+
+function buildBoxes(
+  nodes: Node[],
+  margin: number,
+  childrenByParent: Map<string, Node[]>,
+  nodeById: Map<string, Node>
+): Box[] {
+  return nodes.map((node) => {
+    const { width, height } = getNodeSize(node, childrenByParent, nodeById);
+    return {
       x: node.position.x - margin,
       y: node.position.y - margin,
-      width: (node.width ?? node.measured?.width ?? 0) + margin * 2,
-      height: (node.height ?? node.measured?.height ?? 0) + extraH + margin * 2,
+      width: width + margin * 2,
+      height: height + margin * 2,
       node,
       moved: false,
     };
-  }
-
-  return boxes;
+  });
 }
 
-export const resolveCollisions: CollisionAlgorithm = (
-  nodes,
-  { maxIterations = 50, overlapThreshold = 0.5, margin = 0 },
-) => {
-  const boxes = getBoxesFromNodes(nodes, margin);
+// ── Core resolution ──────────────────────────────────────────────
 
-  for (let iter = 0; iter <= maxIterations; iter++) {
+function resolveBoxes(boxes: Box[], maxIter: number, threshold: number): void {
+  for (let iter = 0; iter <= maxIter; iter++) {
     let moved = false;
-
     for (let i = 0; i < boxes.length; i++) {
       for (let j = i + 1; j < boxes.length; j++) {
         const A = boxes[i];
         const B = boxes[j];
-
-        // Calculate center positions
-        const centerAX = A.x + A.width * 0.5;
-        const centerAY = A.y + A.height * 0.5;
-        const centerBX = B.x + B.width * 0.5;
-        const centerBY = B.y + B.height * 0.5;
-
-        // Calculate distance between centers
-        const dx = centerAX - centerBX;
-        const dy = centerAY - centerBY;
-
-        // Calculate overlap along each axis
+        const dx = (A.x + A.width * 0.5) - (B.x + B.width * 0.5);
+        const dy = (A.y + A.height * 0.5) - (B.y + B.height * 0.5);
         const px = (A.width + B.width) * 0.5 - Math.abs(dx);
         const py = (A.height + B.height) * 0.5 - Math.abs(dy);
 
-        // Check if there's significant overlap
-        if (px > overlapThreshold && py > overlapThreshold) {
+        if (px > threshold && py > threshold) {
           A.moved = B.moved = moved = true;
-          // Resolve along the smallest overlap axis
           if (px < py) {
-            // Move along x-axis
-            const sx = dx > 0 ? 1 : -1;
-            const moveAmount = (px / 2) * sx;
-            A.x += moveAmount;
-            B.x -= moveAmount;
+            const half = (px / 2) * (dx > 0 ? 1 : -1);
+            A.x += half; B.x -= half;
           } else {
-            // Move along y-axis
-            const sy = dy > 0 ? 1 : -1;
-            const moveAmount = (py / 2) * sy;
-            A.y += moveAmount;
-            B.y -= moveAmount;
+            const half = (py / 2) * (dy > 0 ? 1 : -1);
+            A.y += half; B.y -= half;
           }
         }
       }
     }
-    // Early exit if no overlaps were found
-    if (!moved) {
-      break;
+    if (!moved) break;
+  }
+}
+
+function getDepth(nodeId: string | undefined, nodeById: Map<string, Node>): number {
+  let depth = 0;
+  let current = nodeId ? nodeById.get(nodeId) : undefined;
+  while (current?.parentId) {
+    depth++;
+    current = nodeById.get(current.parentId);
+  }
+  return depth;
+}
+
+/**
+ * Pushes overlapping nodes apart along the axis with smallest overlap.
+ *
+ * Strategy:
+ * 1. Group ALL nodes (including groups) by parentId
+ * 2. Sort groups by depth (deepest first = bottom-up)
+ * 3. Resolve innermost siblings first, update their positions, then
+ *    resolve outer siblings — so parent group sizes are always computed
+ *    from already-resolved child positions.
+ */
+export const resolveCollisions: CollisionAlgorithm = (
+  nodes,
+  options = {},
+) => {
+  if (nodes.length < 2) return nodes;
+
+  const maxIter = options.maxIterations ?? 50;
+  const threshold = options.overlapThreshold ?? 0.5;
+  const margin = options.margin ?? 20;
+
+  const nodeById = new Map(nodes.map((n) => [n.id, n]));
+
+  const childrenByParent = new Map<string, Node[]>();
+  for (const node of nodes) {
+    const key = node.parentId ?? "__root__";
+    if (!childrenByParent.has(key)) childrenByParent.set(key, []);
+    childrenByParent.get(key)!.push(node);
+  }
+
+  // Sort parent groups by depth (deepest first) so inner siblings
+  // are resolved before outer ones
+  const parentKeys = [...childrenByParent.keys()];
+  parentKeys.sort((a, b) => {
+    const depthA = a === "__root__" ? -1 : getDepth(a, nodeById);
+    const depthB = b === "__root__" ? -1 : getDepth(b, nodeById);
+    return depthB - depthA;
+  });
+
+  const movedNodes = new Map<string, { x: number; y: number }>();
+
+  for (const parentKey of parentKeys) {
+    const siblings = childrenByParent.get(parentKey)!;
+    if (siblings.length < 2) continue;
+
+    const boxes = buildBoxes(siblings, margin, childrenByParent, nodeById);
+    resolveBoxes(boxes, maxIter, threshold);
+
+    for (const box of boxes) {
+      if (box.moved) {
+        const newPos = { x: box.x + margin, y: box.y + margin };
+        movedNodes.set(box.node.id, newPos);
+        // Update position in-place so parent size computations in
+        // subsequent (shallower) iterations see resolved positions
+        box.node.position = newPos;
+      }
     }
   }
 
-  const newNodes = boxes.map((box) => {
-    if (box.moved) {
-      return {
-        ...box.node,
-        position: {
-          x: box.x + margin,
-          y: box.y + margin,
-        },
-      };
-    }
-    return box.node;
-  });
+  if (movedNodes.size === 0) return nodes;
 
-  return newNodes;
+  return nodes.map((node) => {
+    const pos = movedNodes.get(node.id);
+    return pos ? { ...node, position: pos } : node;
+  });
 };
