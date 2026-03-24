@@ -13,6 +13,7 @@ export type {
   FlowNode,
   FlowEdge,
   HandlePin,
+  ConnectorType,
 } from "./routing-core";
 
 // Store

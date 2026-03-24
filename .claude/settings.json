@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(pkill -f \"vite\")"
+      "Bash(pkill -f \"vite\")",
+      "Bash(find /Users/awaisshah228/Documents/avoid-edge-routing -path */node_modules/libavoid-js -maxdepth 5 -type d)"
     ]
   }
 }

@@ -14,19 +14,35 @@ import {
   ShapeConnectionPin as AvoidShapeConnectionPin,
   ConnEnd as AvoidConnEnd,
   ConnRef as AvoidConnRef,
+  Checkpoint as AvoidCheckpoint,
   ConnectorCrossings,
   AStarPath,
   OrthogonalRouting,
+  PolyLineRouting,
   ConnType_Orthogonal,
+  ConnType_PolyLine,
   ConnDirUp,
   ConnDirDown,
   ConnDirLeft,
   ConnDirRight,
+  // Routing parameters (all 9 from libavoid C++)
+  segmentPenalty as segmentPenaltyParam,
+  anglePenalty as anglePenaltyParam,
+  crossingPenalty as crossingPenaltyParam,
+  clusterCrossingPenalty as clusterCrossingPenaltyParam,
+  fixedSharedPathPenalty as fixedSharedPathPenaltyParam,
+  portDirectionPenalty as portDirectionPenaltyParam,
   shapeBufferDistance as shapeBufferDistanceParam,
   idealNudgingDistance as idealNudgingDistanceParam,
+  reverseDirectionPenalty as reverseDirectionPenaltyParam,
+  // Routing options (all 7 from libavoid C++)
   nudgeOrthogonalSegmentsConnectedToShapes as nudgeOrthogonalSegmentsConnectedToShapesOpt,
   nudgeSharedPathsWithCommonEndPoint as nudgeSharedPathsWithCommonEndPointOpt,
   performUnifyingNudgingPreprocessingStep as performUnifyingNudgingPreprocessingStepOpt,
+  nudgeOrthogonalTouchingColinearSegments as nudgeOrthogonalTouchingColinearSegmentsOpt,
+  improveHyperedgeRoutesMovingJunctions as improveHyperedgeRoutesMovingJunctionsOpt,
+  penaliseOrthogonalSharedPathsAtConnEnds as penaliseOrthogonalSharedPathsAtConnEndsOpt,
+  improveHyperedgeRoutesMovingAddingAndDeletingJunctions as improveHyperedgeRoutesMovingAddingAndDeletingJunctionsOpt,
   generateStaticOrthogonalVisGraph,
   improveOrthogonalRoutes,
   vertexVisibility,
@@ -44,13 +60,63 @@ export type AvoidRoute = {
   targetY: number;
 };
 
+export type ConnectorType = "orthogonal" | "polyline" | "bezier";
+
 export type AvoidRouterOptions = {
+  // --- libavoid routing parameters (numeric penalties/distances) ---
+  /** Distance buffer added around shapes when routing. Default: 8 */
   shapeBufferDistance?: number;
+  /** Ideal distance for nudging apart overlapping segments. Default: 10 */
   idealNudgingDistance?: number;
+  /** Penalty for each segment beyond the first. MUST be >0 for nudging to work. Default: 10 */
+  segmentPenalty?: number;
+  /** Penalty for tight bends (polyline routing). Default: 0 */
+  anglePenalty?: number;
+  /** Penalty for crossing other connectors. EXPERIMENTAL. Default: 0 */
+  crossingPenalty?: number;
+  /** Penalty for crossing cluster boundaries. EXPERIMENTAL. Default: 0 */
+  clusterCrossingPenalty?: number;
+  /** Penalty for shared paths with fixed connectors. EXPERIMENTAL. Default: 0 */
+  fixedSharedPathPenalty?: number;
+  /** Penalty for port selection when other end isn't in visibility cone. EXPERIMENTAL. Default: 0 */
+  portDirectionPenalty?: number;
+  /** Penalty when connector travels opposite direction from destination. Default: 0 */
+  reverseDirectionPenalty?: number;
+
+  // --- libavoid routing options (boolean flags) ---
+  /** Nudge final segments attached to shapes. Default: true */
+  nudgeOrthogonalSegmentsConnectedToShapes?: boolean;
+  /** Nudge intermediate segments at common endpoints. Default: true */
+  nudgeSharedPathsWithCommonEndPoint?: boolean;
+  /** Unify and center segments before nudging (better quality, slower). Default: true */
+  performUnifyingNudgingPreprocessingStep?: boolean;
+  /** Nudge colinear segments touching at ends apart. Default: false */
+  nudgeOrthogonalTouchingColinearSegments?: boolean;
+  /** Improve hyperedge routes by moving junctions. Default: true */
+  improveHyperedgeRoutesMovingJunctions?: boolean;
+  /** Penalize shared orthogonal paths at common junctions/pins. EXPERIMENTAL. Default: false */
+  penaliseOrthogonalSharedPathsAtConnEnds?: boolean;
+  /** Improve hyperedges by adding/removing junctions. Default: false */
+  improveHyperedgeRoutesMovingAddingAndDeletingJunctions?: boolean;
+
+  // --- Connector settings ---
+  /** Connector routing type: "orthogonal" (default), "polyline", or "bezier". */
+  connectorType?: ConnectorType;
+  /** If true, connectors try to avoid crossings (longer paths). Default: false */
+  hateCrossings?: boolean;
+  /** Inside offset (px) for pins — pushes connector start inside shape boundary. Default: 0 */
+  pinInsideOffset?: number;
+
+  // --- Custom post-processing options ---
+  /** Spacing (px) between edges at shared handles. Default: same as idealNudgingDistance */
   handleNudgingDistance?: number;
+  /** Corner radius for orthogonal path rendering. Default: 0 */
   edgeRounding?: number;
+  /** Snap waypoints to grid. Default: 0 (no grid) */
   diagramGridSize?: number;
+  /** Auto-select best connection side based on relative node positions. Default: true */
   autoBestSideConnection?: boolean;
+  /** Debounce delay for routing updates (ms). Default: 0 */
   debounceMs?: number;
 };
 
@@ -65,6 +131,8 @@ export type HandlePin = {
   yPct: number;
   /** Which side the handle is on — determines connection direction */
   side: HandlePosition;
+  /** Optional connection cost for this pin. Lower cost pins are preferred. */
+  cost?: number;
 };
 
 export type FlowNode = {
@@ -93,6 +161,8 @@ export type FlowEdge = {
   sourceHandle?: string | null;
   targetHandle?: string | null;
   type?: string;
+  /** Optional checkpoints (waypoints) the edge must pass through */
+  checkpoints?: { x: number; y: number }[];
   [key: string]: unknown;
 };
 
@@ -105,6 +175,24 @@ function createRouter(flags: number): AvoidRouter {
   (router as any)._AStarPath = AStarPath;
   (router as any)._vertexVisibility = vertexVisibility;
   return router;
+}
+
+/** Get the libavoid ConnType for a connector type string. */
+function getConnType(connectorType: ConnectorType | undefined): number {
+  switch (connectorType) {
+    case "polyline": return ConnType_PolyLine;
+    case "orthogonal":
+    case "bezier": // bezier uses orthogonal routing, then post-processes to curves
+    default: return ConnType_Orthogonal;
+  }
+}
+
+/** Get the Router flags for the connector type. */
+function getRouterFlags(connectorType: ConnectorType | undefined): number {
+  switch (connectorType) {
+    case "polyline": return PolyLineRouting | OrthogonalRouting;
+    default: return OrthogonalRouting;
+  }
 }
 
 // ---- Geometry ----
@@ -226,6 +314,120 @@ export class PathBuilder {
     d += ` L ${pt(size - 1).x} ${pt(size - 1).y}`;
     return d;
   }
+
+  /**
+   * Convert routed waypoints directly to an SVG path string.
+   * No modifications — just M + L. libavoid already computed the correct positions.
+   */
+  static pointsToSvgPath(points: { x: number; y: number }[]): string {
+    if (points.length === 0) return "";
+    let d = `M ${points[0].x} ${points[0].y}`;
+    for (let i = 1; i < points.length; i++) {
+      d += ` L ${points[i].x} ${points[i].y}`;
+    }
+    return d;
+  }
+
+  /**
+   * Convert routed waypoints to a smooth bezier spline.
+   *
+   * Takes the orthogonal waypoints from libavoid, keeps only corners
+   * (where direction changes), then draws a smooth cubic bezier spline
+   * through them. The result is a flowing curve — not orthogonal at all —
+   * that still follows the obstacle-avoiding route.
+   */
+  static routedBezierPath(
+    points: { x: number; y: number }[],
+    options: { gridSize?: number } = {}
+  ): string {
+    if (points.length < 2) return "";
+    const gridSize = options.gridSize ?? 0;
+    const snap = (p: { x: number; y: number }) =>
+      gridSize > 0 ? Geometry.snapToGrid(p.x, p.y, gridSize) : p;
+
+    const raw = points.map(snap);
+
+    // Deduplicate
+    const deduped: { x: number; y: number }[] = [raw[0]];
+    for (let i = 1; i < raw.length; i++) {
+      const prev = deduped[deduped.length - 1];
+      if (Math.abs(raw[i].x - prev.x) > 0.5 || Math.abs(raw[i].y - prev.y) > 0.5) {
+        deduped.push(raw[i]);
+      }
+    }
+
+    // Remove collinear midpoints — keep only corners + endpoints
+    const pts: { x: number; y: number }[] = [deduped[0]];
+    for (let i = 1; i < deduped.length - 1; i++) {
+      const prev = deduped[i - 1];
+      const curr = deduped[i];
+      const next = deduped[i + 1];
+      const sameX = Math.abs(prev.x - curr.x) < 1 && Math.abs(curr.x - next.x) < 1;
+      const sameY = Math.abs(prev.y - curr.y) < 1 && Math.abs(curr.y - next.y) < 1;
+      if (!sameX || !sameY) pts.push(curr);
+    }
+    pts.push(deduped[deduped.length - 1]);
+
+    if (pts.length < 2) return `M ${pts[0].x} ${pts[0].y}`;
+
+    // 2 points: simple bezier with offset control points
+    if (pts.length === 2) {
+      const [s, t] = pts;
+      const dx = t.x - s.x;
+      const dy = t.y - s.y;
+      const offset = Math.max(50, Math.max(Math.abs(dx), Math.abs(dy)) * 0.5);
+      if (Math.abs(dx) >= Math.abs(dy)) {
+        const sign = dx >= 0 ? 1 : -1;
+        return `M ${s.x} ${s.y} C ${s.x + offset * sign} ${s.y}, ${t.x - offset * sign} ${t.y}, ${t.x} ${t.y}`;
+      }
+      const sign = dy >= 0 ? 1 : -1;
+      return `M ${s.x} ${s.y} C ${s.x} ${s.y + offset * sign}, ${t.x} ${t.y - offset * sign}, ${t.x} ${t.y}`;
+    }
+
+    // 3+ points: smooth cubic bezier spline through all corner points.
+    // For each segment i→i+1, compute tangent-based control points using
+    // neighbors (Catmull-Rom style, tension 0.3).
+    const tension = 0.3;
+    const dist = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+      Math.hypot(b.x - a.x, b.y - a.y);
+
+    let d = `M ${pts[0].x} ${pts[0].y}`;
+
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[Math.max(0, i - 1)];
+      const p1 = pts[i];
+      const p2 = pts[i + 1];
+      const p3 = pts[Math.min(pts.length - 1, i + 2)];
+
+      const segLen = dist(p1, p2);
+
+      // Tangent at p1: direction from p0 to p2
+      let cp1x = p1.x + (p2.x - p0.x) * tension;
+      let cp1y = p1.y + (p2.y - p0.y) * tension;
+      // Tangent at p2: direction from p1 to p3
+      let cp2x = p2.x - (p3.x - p1.x) * tension;
+      let cp2y = p2.y - (p3.y - p1.y) * tension;
+
+      // Clamp control points — don't extend past 40% of segment length
+      const maxReach = segLen * 0.4;
+      const cp1d = dist(p1, { x: cp1x, y: cp1y });
+      if (cp1d > maxReach && cp1d > 0) {
+        const s = maxReach / cp1d;
+        cp1x = p1.x + (cp1x - p1.x) * s;
+        cp1y = p1.y + (cp1y - p1.y) * s;
+      }
+      const cp2d = dist(p2, { x: cp2x, y: cp2y });
+      if (cp2d > maxReach && cp2d > 0) {
+        const s = maxReach / cp2d;
+        cp2x = p2.x + (cp2x - p2.x) * s;
+        cp2y = p2.y + (cp2y - p2.y) * s;
+      }
+
+      d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`;
+    }
+
+    return d;
+  }
 }
 
 // ---- Handle Spacing ----
@@ -291,20 +493,71 @@ class PinRegistry {
   clear() { this.map.clear(); this.nextId = 1; }
 }
 
+// ---- Router configuration ----
+
+function configureRouter(router: AvoidRouter, options: AvoidRouterOptions): void {
+  console.log("[routing-core] configureRouter:", {
+    shapeBufferDistance: options.shapeBufferDistance ?? 8,
+    idealNudgingDistance: options.idealNudgingDistance ?? 10,
+    segmentPenalty: options.segmentPenalty ?? 10,
+    connectorType: options.connectorType ?? "orthogonal",
+    hateCrossings: options.hateCrossings ?? false,
+    nudgeOrthSegConnToShapes: options.nudgeOrthogonalSegmentsConnectedToShapes ?? true,
+    nudgeSharedPaths: options.nudgeSharedPathsWithCommonEndPoint ?? true,
+    performUnifyNudge: options.performUnifyingNudgingPreprocessingStep ?? true,
+  });
+  // --- Routing parameters ---
+  router.setRoutingParameter(shapeBufferDistanceParam, options.shapeBufferDistance ?? 8);
+  router.setRoutingParameter(idealNudgingDistanceParam, options.idealNudgingDistance ?? 10);
+  // segmentPenalty MUST be >0 for orthogonal nudging to work (libavoid C++ docs)
+  router.setRoutingParameter(segmentPenaltyParam, options.segmentPenalty ?? 10);
+  if (options.anglePenalty != null && options.anglePenalty > 0) {
+    router.setRoutingParameter(anglePenaltyParam, options.anglePenalty);
+  }
+  if (options.crossingPenalty != null && options.crossingPenalty > 0) {
+    router.setRoutingParameter(crossingPenaltyParam, options.crossingPenalty);
+  }
+  if (options.clusterCrossingPenalty != null && options.clusterCrossingPenalty > 0) {
+    router.setRoutingParameter(clusterCrossingPenaltyParam, options.clusterCrossingPenalty);
+  }
+  if (options.fixedSharedPathPenalty != null && options.fixedSharedPathPenalty > 0) {
+    router.setRoutingParameter(fixedSharedPathPenaltyParam, options.fixedSharedPathPenalty);
+  }
+  if (options.portDirectionPenalty != null && options.portDirectionPenalty > 0) {
+    router.setRoutingParameter(portDirectionPenaltyParam, options.portDirectionPenalty);
+  }
+  if (options.reverseDirectionPenalty != null && options.reverseDirectionPenalty > 0) {
+    router.setRoutingParameter(reverseDirectionPenaltyParam, options.reverseDirectionPenalty);
+  }
+
+  // --- Routing options ---
+  router.setRoutingOption(nudgeOrthogonalSegmentsConnectedToShapesOpt, options.nudgeOrthogonalSegmentsConnectedToShapes ?? true);
+  router.setRoutingOption(nudgeSharedPathsWithCommonEndPointOpt, options.nudgeSharedPathsWithCommonEndPoint ?? true);
+  router.setRoutingOption(performUnifyingNudgingPreprocessingStepOpt, options.performUnifyingNudgingPreprocessingStep ?? true);
+  router.setRoutingOption(nudgeOrthogonalTouchingColinearSegmentsOpt, options.nudgeOrthogonalTouchingColinearSegments ?? false);
+  router.setRoutingOption(improveHyperedgeRoutesMovingJunctionsOpt, options.improveHyperedgeRoutesMovingJunctions ?? true);
+  router.setRoutingOption(penaliseOrthogonalSharedPathsAtConnEndsOpt, options.penaliseOrthogonalSharedPathsAtConnEnds ?? false);
+  router.setRoutingOption(improveHyperedgeRoutesMovingAddingAndDeletingJunctionsOpt, options.improveHyperedgeRoutesMovingAddingAndDeletingJunctions ?? false);
+}
+
 // ---- Routing helpers ----
 
 function createObstacles(
   router: AvoidRouter,
   nodes: FlowNode[],
   nodeById: Map<string, FlowNode>,
-  pinRegistry: PinRegistry
+  pinRegistry: PinRegistry,
+  options: AvoidRouterOptions
 ): { shapeRefMap: Map<string, AvoidShapeRef>; shapeRefList: AvoidShapeRef[] } {
   const shapeRefMap = new Map<string, AvoidShapeRef>();
   const shapeRefList: AvoidShapeRef[] = [];
   const obstacleNodes = nodes.filter((n) => n.type !== "group");
+  const insideOffset = options.pinInsideOffset ?? 0;
 
+  console.log(`[routing-core] Creating ${obstacleNodes.length} obstacles, insideOffset=${insideOffset}`);
   for (const node of obstacleNodes) {
     const b = Geometry.getNodeBoundsAbsolute(node, nodeById);
+    console.log(`  obstacle "${node.id}": (${b.x},${b.y}) ${b.w}x${b.h}, pins: ${((node._handlePins as HandlePin[] | undefined) ?? []).map(p => `${p.handleId}@${p.side}(${p.xPct.toFixed(2)},${p.yPct.toFixed(2)})`).join(", ") || "none"}`);
     const topLeft = new AvoidPoint(b.x, b.y);
     const bottomRight = new AvoidPoint(b.x + b.w, b.y + b.h);
     const rect = new AvoidRectangle(topLeft, bottomRight);
@@ -318,9 +571,12 @@ function createObstacles(
       const pinId = pinRegistry.getOrCreate(node.id, pin.handleId);
       const dir = Geometry.sideToDir(pin.side);
       const sp = AvoidShapeConnectionPin.createForShape(
-        shapeRef as any, pinId, pin.xPct, pin.yPct, true, 0, dir
+        shapeRef as any, pinId, pin.xPct, pin.yPct, true, insideOffset, dir
       );
       sp.setExclusive(false);
+      if (pin.cost != null && pin.cost > 0) {
+        sp.setConnectionCost(pin.cost);
+      }
     }
   }
 
@@ -331,7 +587,8 @@ function ensureAutoPin(
   node: FlowNode,
   shapeRef: AvoidShapeRef,
   side: HandlePosition,
-  pinRegistry: PinRegistry
+  pinRegistry: PinRegistry,
+  insideOffset: number
 ): number {
   const autoHandleId = `__auto_${side}`;
   const pinId = pinRegistry.getOrCreate(node.id, autoHandleId);
@@ -347,7 +604,7 @@ function ensureAutoPin(
 
   const dir = Geometry.sideToDir(side);
   const sp = AvoidShapeConnectionPin.createForShape(
-    shapeRef as any, pinId, xPct, yPct, true, 0, dir
+    shapeRef as any, pinId, xPct, yPct, true, insideOffset, dir
   );
   sp.setExclusive(false);
   return pinId;
@@ -359,12 +616,16 @@ function createConnections(
   nodeById: Map<string, FlowNode>,
   shapeRefMap: Map<string, AvoidShapeRef>,
   pinRegistry: PinRegistry,
-  autoBestSide: boolean
+  options: AvoidRouterOptions
 ): { edgeId: string; connRef: AvoidConnRef }[] {
   const connRefs: { edgeId: string; connRef: AvoidConnRef }[] = [];
-  // Track which auto-pins have already been created: "nodeId:side"
   const createdAutoPins = new Set<string>();
+  const autoBestSide = options.autoBestSideConnection ?? true;
+  const connType = getConnType(options.connectorType);
+  const hateCrossings = options.hateCrossings ?? false;
+  const insideOffset = options.pinInsideOffset ?? 0;
 
+  console.log(`[routing-core] Creating ${edges.length} connections, connType=${connType}, autoBestSide=${autoBestSide}, hateCrossings=${hateCrossings}`);
   for (const edge of edges) {
     const src = nodeById.get(edge.source);
     const tgt = nodeById.get(edge.target);
@@ -383,7 +644,7 @@ function createConnections(
           targetPos: Geometry.getHandlePosition(tgt, "target"),
         };
 
-    // Source end — use explicit handle pin, or create an auto-pin on best side
+    // Source end
     let srcEnd: AvoidConnEnd;
     if (srcShapeRef && edge.sourceHandle) {
       const pinId = pinRegistry.getOrCreate(edge.source, edge.sourceHandle);
@@ -392,7 +653,7 @@ function createConnections(
       const side = bestSides.sourcePos;
       const autoKey = `${edge.source}:${side}`;
       if (!createdAutoPins.has(autoKey)) {
-        ensureAutoPin(src, srcShapeRef, side, pinRegistry);
+        ensureAutoPin(src, srcShapeRef, side, pinRegistry, insideOffset);
         createdAutoPins.add(autoKey);
       }
       const pinId = pinRegistry.getOrCreate(edge.source, `__auto_${side}`);
@@ -403,7 +664,7 @@ function createConnections(
       srcEnd = AvoidConnEnd.fromPoint(new AvoidPoint(pt.x, pt.y));
     }
 
-    // Target end — use explicit handle pin, or create an auto-pin on best side
+    // Target end
     let tgtEnd: AvoidConnEnd;
     if (tgtShapeRef && edge.targetHandle) {
       const pinId = pinRegistry.getOrCreate(edge.target, edge.targetHandle);
@@ -412,7 +673,7 @@ function createConnections(
       const side = bestSides.targetPos;
       const autoKey = `${edge.target}:${side}`;
       if (!createdAutoPins.has(autoKey)) {
-        ensureAutoPin(tgt, tgtShapeRef, side, pinRegistry);
+        ensureAutoPin(tgt, tgtShapeRef, side, pinRegistry, insideOffset);
         createdAutoPins.add(autoKey);
       }
       const pinId = pinRegistry.getOrCreate(edge.target, `__auto_${side}`);
@@ -424,7 +685,21 @@ function createConnections(
     }
 
     const connRef = new AvoidConnRef(router as any, srcEnd, tgtEnd);
-    connRef.setRoutingType(ConnType_Orthogonal);
+    connRef.setRoutingType(connType);
+
+    if (hateCrossings) {
+      connRef.setHateCrossings(true);
+    }
+
+    // Set checkpoints if provided
+    if (edge.checkpoints && edge.checkpoints.length > 0) {
+      const checkpoints = edge.checkpoints.map(
+        (cp) => new AvoidCheckpoint(new AvoidPoint(cp.x, cp.y))
+      );
+      connRef.setRoutingCheckpoints(checkpoints);
+    }
+
+    console.log(`  edge "${edge.id}": ${edge.source}${edge.sourceHandle ? ':' + edge.sourceHandle : ''} → ${edge.target}${edge.targetHandle ? ':' + edge.targetHandle : ''}, srcShape=${!!srcShapeRef}, tgtShape=${!!tgtShapeRef}`);
     connRefs.push({ edgeId: edge.id, connRef });
   }
 
@@ -439,34 +714,28 @@ export class RoutingEngine {
     edges: FlowEdge[],
     options?: AvoidRouterOptions
   ): Record<string, AvoidRoute> {
-    const shapeBuffer = options?.shapeBufferDistance ?? 8;
-    const idealNudging = options?.idealNudgingDistance ?? 10;
-    const handleNudging = options?.handleNudgingDistance ?? idealNudging;
-    const cornerRadius = options?.edgeRounding ?? 0;
-    const gridSize = options?.diagramGridSize ?? 0;
+    const opts = options ?? {};
+    const gridSize = opts.diagramGridSize ?? 0;
     const nodeById = new Map(nodes.map((n) => [n.id, n]));
     const pinRegistry = new PinRegistry();
 
-    const router = createRouter(OrthogonalRouting);
-    router.setRoutingParameter(shapeBufferDistanceParam, shapeBuffer);
-    router.setRoutingParameter(idealNudgingDistanceParam, idealNudging);
-    router.setRoutingOption(nudgeOrthogonalSegmentsConnectedToShapesOpt, true);
-    router.setRoutingOption(nudgeSharedPathsWithCommonEndPointOpt, true);
-    router.setRoutingOption(performUnifyingNudgingPreprocessingStepOpt, true);
+    const routerFlags = getRouterFlags(opts.connectorType);
+    const router = createRouter(routerFlags);
+    configureRouter(router, opts);
 
-    const autoBestSide = options?.autoBestSideConnection ?? true;
-    const { shapeRefMap, shapeRefList } = createObstacles(router, nodes, nodeById, pinRegistry);
-    const connRefs = createConnections(router, edges, nodeById, shapeRefMap, pinRegistry, autoBestSide);
+    const { shapeRefMap, shapeRefList } = createObstacles(router, nodes, nodeById, pinRegistry, opts);
+    const connRefs = createConnections(router, edges, nodeById, shapeRefMap, pinRegistry, opts);
 
     const result: Record<string, AvoidRoute> = {};
     try { router.processTransaction(); } catch { RoutingEngine.cleanup(router, connRefs, shapeRefList); return result; }
 
+    // Read routed points directly — no post-processing. libavoid already nudged them.
     const edgePoints = RoutingEngine.extractRoutePoints(connRefs);
-    if (handleNudging !== idealNudging && edgePoints.size > 0) {
-      HandleSpacing.adjust(edges, edgePoints, handleNudging, idealNudging);
-    }
+    const connType = opts.connectorType ?? "orthogonal";
     for (const [edgeId, points] of edgePoints) {
-      const path = PathBuilder.polylineToPath(points.length, (i) => points[i], { gridSize: gridSize || undefined, cornerRadius });
+      const path = connType === "bezier"
+        ? PathBuilder.routedBezierPath(points)
+        : PathBuilder.pointsToSvgPath(points);
       const mid = Math.floor(points.length / 2);
       const midP = points[mid];
       const labelP = gridSize > 0 ? Geometry.snapToGrid(midP.x, midP.y, gridSize) : midP;
@@ -574,29 +843,21 @@ export class PersistentRouter {
 
   private buildRouter(): Record<string, AvoidRoute> {
     const opts = this.prevOptions;
-    const shapeBuffer = opts.shapeBufferDistance ?? 8;
-    const idealNudging = opts.idealNudgingDistance ?? 10;
 
     // Clean up previous
     if (this.router) {
-      try {
-        RoutingEngine.cleanup(this.router, this.connRefList, this.shapeRefList);
-      } catch { /* ok */ }
+      try { RoutingEngine.cleanup(this.router, this.connRefList, this.shapeRefList); } catch { /* ok */ }
     }
 
     this.pinRegistry.clear();
-    this.router = createRouter(OrthogonalRouting);
-    this.router.setRoutingParameter(shapeBufferDistanceParam, shapeBuffer);
-    this.router.setRoutingParameter(idealNudgingDistanceParam, idealNudging);
-    this.router.setRoutingOption(nudgeOrthogonalSegmentsConnectedToShapesOpt, true);
-    this.router.setRoutingOption(nudgeSharedPathsWithCommonEndPointOpt, true);
-    this.router.setRoutingOption(performUnifyingNudgingPreprocessingStepOpt, true);
+    const routerFlags = getRouterFlags(opts.connectorType);
+    this.router = createRouter(routerFlags);
+    configureRouter(this.router, opts);
 
-    const result = createObstacles(this.router, this.prevNodes, this.nodeById, this.pinRegistry);
+    const result = createObstacles(this.router, this.prevNodes, this.nodeById, this.pinRegistry, opts);
     this.shapeRefMap = result.shapeRefMap;
     this.shapeRefList = result.shapeRefList;
-    const autoBestSide = opts.autoBestSideConnection ?? true;
-    this.connRefList = createConnections(this.router, this.prevEdges, this.nodeById, this.shapeRefMap, this.pinRegistry, autoBestSide);
+    this.connRefList = createConnections(this.router, this.prevEdges, this.nodeById, this.shapeRefMap, this.pinRegistry, opts);
 
     try { this.router.processTransaction(); }
     catch { this.destroy(); return {}; }
@@ -606,18 +867,26 @@ export class PersistentRouter {
 
   private readRoutes(): Record<string, AvoidRoute> {
     const opts = this.prevOptions;
-    const idealNudging = opts.idealNudgingDistance ?? 10;
-    const handleNudging = opts.handleNudgingDistance ?? idealNudging;
-    const cornerRadius = opts.edgeRounding ?? 0;
     const gridSize = opts.diagramGridSize ?? 0;
     const result: Record<string, AvoidRoute> = {};
 
+    // Read routed points directly from libavoid — no post-processing.
     const edgePoints = RoutingEngine.extractRoutePoints(this.connRefList);
-    if (handleNudging !== idealNudging && edgePoints.size > 0) {
-      HandleSpacing.adjust(this.prevEdges, edgePoints, handleNudging, idealNudging);
-    }
+
+    // DEBUG: Log raw points from libavoid
+    console.log("[routing-core] Raw points from libavoid:");
     for (const [edgeId, points] of edgePoints) {
-      const path = PathBuilder.polylineToPath(points.length, (i) => points[i], { gridSize: gridSize || undefined, cornerRadius });
+      console.log(`  ${edgeId}: ${points.length} pts → [${points.map(p => `(${p.x.toFixed(1)},${p.y.toFixed(1)})`).join(" → ")}]`);
+    }
+
+    const connType = opts.connectorType ?? "orthogonal";
+    for (const [edgeId, points] of edgePoints) {
+      const path = connType === "bezier"
+        ? PathBuilder.routedBezierPath(points)
+        : PathBuilder.pointsToSvgPath(points);
+
+      console.log(`[routing-core] ${edgeId} path: ${path.substring(0, 120)}...`);
+
       const mid = Math.floor(points.length / 2);
       const midP = points[mid];
       const labelP = gridSize > 0 ? Geometry.snapToGrid(midP.x, midP.y, gridSize) : midP;

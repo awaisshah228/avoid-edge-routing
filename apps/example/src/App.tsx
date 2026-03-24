@@ -18,7 +18,8 @@ import {
   addEdge,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { useEdgeRouting } from "edge-routing";
+import { useControls, folder, Leva } from "leva";
+import { useEdgeRouting, type ConnectorType } from "edge-routing";
 import { RoutedEdge } from "./RoutedEdge";
 import { createEnrichNode } from "./enrichNode";
 
@@ -119,15 +120,12 @@ const initialNodes: Node[] = [
 ];
 
 const initialEdges: Edge[] = [
-  // Splitter -> 3 processes
   { id: "e-split-a", source: "split", sourceHandle: "out-0", target: "procA", targetHandle: "in-0", type: "routed" },
   { id: "e-split-b", source: "split", sourceHandle: "out-1", target: "procB", targetHandle: "in-0", type: "routed" },
   { id: "e-split-c", source: "split", sourceHandle: "out-2", target: "procC", targetHandle: "in-0", type: "routed" },
-  // Processes -> Merger
   { id: "e-a-merge", source: "procA", sourceHandle: "out-0", target: "merge", targetHandle: "in-0", type: "routed" },
   { id: "e-b-merge", source: "procB", sourceHandle: "out-0", target: "merge", targetHandle: "in-1", type: "routed" },
   { id: "e-c-merge", source: "procC", sourceHandle: "out-0", target: "merge", targetHandle: "in-2", type: "routed" },
-  // Cross-connections to show routing around obstacles
   { id: "e-a-b", source: "procA", sourceHandle: "out-1", target: "procB", targetHandle: "in-1", type: "routed" },
 ];
 
@@ -140,17 +138,84 @@ function FlowCanvas() {
   const [edges, setEdges] = useState<Edge[]>(initialEdges);
   const { getInternalNode } = useReactFlow();
 
+  // ---------------------------------------------------------------------------
+  // Leva settings panel — all libavoid options exposed
+  // ---------------------------------------------------------------------------
+  const {
+    connectorType,
+    edgeToEdgeSpacing,
+    edgeToNodeSpacing,
+    handleSpacing,
+    edgeRounding,
+    segmentPenalty,
+    anglePenalty,
+    reverseDirectionPenalty,
+    crossingPenalty,
+    hateCrossings,
+    pinInsideOffset,
+    nudgeOrthogonalSegmentsConnectedToShapes,
+    nudgeSharedPathsWithCommonEndPoint,
+    performUnifyingNudgingPreprocessingStep,
+    nudgeOrthogonalTouchingColinearSegments,
+    debounceMs,
+  } = useControls({
+    // ---- Important settings (top level) ----
+    connectorType: {
+      value: "orthogonal" as ConnectorType,
+      options: ["orthogonal", "bezier", "polyline"] as ConnectorType[],
+      label: "Edge Style",
+    },
+    edgeToEdgeSpacing: { value: 4, min: 1, max: 40, step: 1, label: "Edge↔Edge" },
+    edgeToNodeSpacing: { value: 20, min: 1, max: 60, step: 1, label: "Edge↔Node" },
+    edgeRounding: { value: 8, min: 0, max: 30, step: 1, label: "Rounding" },
+    hateCrossings: { value: false, label: "Avoid Crossings" },
+
+    // ---- Advanced settings (folders) ----
+    "Spacing": folder({
+      handleSpacing: { value: 20, min: 1, max: 60, step: 1, label: "Handle" },
+      pinInsideOffset: { value: 0, min: 0, max: 20, step: 1, label: "Pin Offset" },
+    }, { collapsed: true }),
+    "Penalties": folder({
+      segmentPenalty: { value: 10, min: 0, max: 100, step: 1, label: "Segment" },
+      anglePenalty: { value: 0, min: 0, max: 100, step: 1, label: "Angle" },
+      reverseDirectionPenalty: { value: 0, min: 0, max: 100, step: 1, label: "Reverse" },
+      crossingPenalty: { value: 0, min: 0, max: 200, step: 1, label: "Crossing" },
+    }, { collapsed: true }),
+    "Nudging": folder({
+      nudgeOrthogonalSegmentsConnectedToShapes: { value: true, label: "At Shapes" },
+      nudgeSharedPathsWithCommonEndPoint: { value: true, label: "Shared Paths" },
+      performUnifyingNudgingPreprocessingStep: { value: true, label: "Unify First" },
+      nudgeOrthogonalTouchingColinearSegments: { value: false, label: "Colinear" },
+    }, { collapsed: true }),
+    "Performance": folder({
+      debounceMs: { value: 0, min: 0, max: 200, step: 5, label: "Debounce (ms)" },
+    }, { collapsed: true }),
+  });
+
   // Create enrichNode — reads exact handle positions from DOM via getInternalNode
   const enrichNode = useMemo(
     () => createEnrichNode(getInternalNode),
     [getInternalNode]
   );
 
-  // Wire up libavoid edge routing
+  // Wire up libavoid edge routing with all settings from panel
   const { updateRoutingOnNodesChange } = useEdgeRouting(nodes, edges, {
-    edgeRounding: 8,
-    edgeToEdgeSpacing: 6,
-    edgeToNodeSpacing: 8,
+    connectorType,
+    edgeToEdgeSpacing,
+    edgeToNodeSpacing,
+    handleSpacing,
+    edgeRounding,
+    segmentPenalty,
+    anglePenalty,
+    reverseDirectionPenalty,
+    crossingPenalty,
+    hateCrossings,
+    pinInsideOffset,
+    nudgeOrthogonalSegmentsConnectedToShapes,
+    nudgeSharedPathsWithCommonEndPoint,
+    performUnifyingNudgingPreprocessingStep,
+    nudgeOrthogonalTouchingColinearSegments,
+    debounceMs,
     enrichNode,
   });
 
@@ -202,6 +267,7 @@ function FlowCanvas() {
 export default function App() {
   return (
     <ReactFlowProvider>
+      <Leva titleBar={{ title: "Edge Routing" }} />
       <FlowCanvas />
     </ReactFlowProvider>
   );
