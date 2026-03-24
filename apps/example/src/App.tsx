@@ -352,6 +352,7 @@ function FlowCanvas() {
     } else {
       levaStore.set({ "Routing.edgeToEdgeSpacing": 6, "Routing.edgeToNodeSpacing": 8, "Routing.shouldSplitEdgesNearHandle": true }, false);
     }
+    setTimeout(() => resetRoutingRef.current(), 50);
   }, [connectorType]);
 
   const { updateRoutingOnNodesChange, resetRouting } = useEdgeRouting(nodes, edges, {
