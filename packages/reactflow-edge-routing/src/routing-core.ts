@@ -6,6 +6,8 @@
  * shape an edge belongs to and won't route through it.
  */
 
+import { getBezierPath, getSmoothStepPath, getStraightPath, Position } from "@xyflow/system";
+
 import {
   Router as AvoidRouter,
   Point as AvoidPoint,
@@ -120,6 +122,8 @@ export type AvoidRouterOptions = {
   shouldSplitEdgesNearHandle?: boolean;
   /** Auto-select best connection side based on relative node positions. Default: true */
   autoBestSideConnection?: boolean;
+  /** When true, only route edges whose direct path is blocked by an obstacle. Unblocked edges get a straight line. Default: true */
+  routeOnlyWhenBlocked?: boolean;
   /** Debounce delay for routing updates (ms). Default: 0 */
   debounceMs?: number;
 };
@@ -250,6 +254,55 @@ function buildLabelFractions(
     }
   }
   return fractions;
+}
+
+/** Derive the React Flow Position (Left/Right/Top/Bottom) from a handle point and its stub point. */
+function sideFromStub(
+  handlePt: { x: number; y: number },
+  stubPt: { x: number; y: number }
+): Position {
+  const dx = stubPt.x - handlePt.x;
+  const dy = stubPt.y - handlePt.y;
+  if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? Position.Right : Position.Left;
+  return dy >= 0 ? Position.Bottom : Position.Top;
+}
+
+/** Returns true if the segment p1→p2 passes through the rectangle (with optional buffer). Uses slab method. */
+function segmentIntersectsRect(
+  p1: { x: number; y: number },
+  p2: { x: number; y: number },
+  rect: { x: number; y: number; w: number; h: number },
+  buffer = 0
+): boolean {
+  const rx = rect.x - buffer, ry = rect.y - buffer;
+  const rw = rect.w + buffer * 2, rh = rect.h + buffer * 2;
+  const inside = (p: { x: number; y: number }) => p.x >= rx && p.x <= rx + rw && p.y >= ry && p.y <= ry + rh;
+  if (inside(p1) || inside(p2)) return true;
+  const dx = p2.x - p1.x, dy = p2.y - p1.y;
+  let tMin = 0, tMax = 1;
+  if (Math.abs(dx) < 1e-10) { if (p1.x < rx || p1.x > rx + rw) return false; }
+  else { const t1 = (rx - p1.x) / dx, t2 = (rx + rw - p1.x) / dx; tMin = Math.max(tMin, Math.min(t1, t2)); tMax = Math.min(tMax, Math.max(t1, t2)); }
+  if (Math.abs(dy) < 1e-10) { if (p1.y < ry || p1.y > ry + rh) return false; }
+  else { const t1 = (ry - p1.y) / dy, t2 = (ry + rh - p1.y) / dy; tMin = Math.max(tMin, Math.min(t1, t2)); tMax = Math.min(tMax, Math.max(t1, t2)); }
+  return tMin <= tMax;
+}
+
+/** Returns true if the direct line from srcPt to tgtPt is blocked by any node except the source/target nodes. */
+function isEdgeDirectPathBlocked(
+  srcPt: { x: number; y: number },
+  tgtPt: { x: number; y: number },
+  srcNodeId: string,
+  tgtNodeId: string,
+  nodes: FlowNode[],
+  nodeById: Map<string, FlowNode>,
+  buffer: number
+): boolean {
+  for (const node of nodes) {
+    if (node.id === srcNodeId || node.id === tgtNodeId) continue;
+    const bounds = Geometry.getNodeBoundsAbsolute(node, nodeById);
+    if (segmentIntersectsRect(srcPt, tgtPt, bounds, buffer)) return true;
+  }
+  return false;
 }
 
 // ---- Geometry ----
@@ -920,9 +973,45 @@ export class RoutingEngine {
       }
     }
 
+    // For unblocked edges, generate the React Flow fallback path directly.
     const connType = opts.connectorType ?? "orthogonal";
+    const borderRadius = opts.edgeRounding ?? 0;
+    const directRoutes = new Map<string, { path: string; labelX: number; labelY: number; srcPt: { x: number; y: number }; tgtPt: { x: number; y: number } }>();
+    if (opts.routeOnlyWhenBlocked !== false) {
+      const edgeById = new Map(edges.map((e) => [e.id, e]));
+      const buffer = opts.shapeBufferDistance ?? 8;
+      for (const [edgeId, points] of edgePoints) {
+        const edge = edgeById.get(edgeId);
+        if (!edge) continue;
+        const src = points[0], tgt = points[points.length - 1];
+        if (!isEdgeDirectPathBlocked(src, tgt, edge.source, edge.target, nodes, nodeById, buffer)) {
+          const stub = stubMap.get(edgeId);
+          if (stub) {
+            const srcPos = sideFromStub(stub.srcHandlePt, stub.srcStubPt);
+            const tgtPos = sideFromStub(stub.tgtHandlePt, stub.tgtStubPt);
+            const { x: sx, y: sy } = stub.srcHandlePt;
+            const { x: tx, y: ty } = stub.tgtHandlePt;
+            let path: string; let labelX: number; let labelY: number;
+            if (connType === "bezier") {
+              [path, labelX, labelY] = getBezierPath({ sourceX: sx, sourceY: sy, sourcePosition: srcPos, targetX: tx, targetY: ty, targetPosition: tgtPos });
+            } else if (connType === "polyline") {
+              [path, labelX, labelY] = getStraightPath({ sourceX: sx, sourceY: sy, targetX: tx, targetY: ty });
+            } else {
+              [path, labelX, labelY] = getSmoothStepPath({ sourceX: sx, sourceY: sy, sourcePosition: srcPos, targetX: tx, targetY: ty, targetPosition: tgtPos, borderRadius });
+            }
+            directRoutes.set(edgeId, { path, labelX, labelY, srcPt: stub.srcHandlePt, tgtPt: stub.tgtHandlePt });
+          }
+        }
+      }
+    }
+
     const labelFractions = buildLabelFractions(edges, edgePoints);
     for (const [edgeId, points] of edgePoints) {
+      const direct = directRoutes.get(edgeId);
+      if (direct) {
+        result[edgeId] = { path: direct.path, labelX: direct.labelX, labelY: direct.labelY, sourceX: direct.srcPt.x, sourceY: direct.srcPt.y, targetX: direct.tgtPt.x, targetY: direct.tgtPt.y };
+        continue;
+      }
       const edgeRounding = opts.edgeRounding ?? 0;
       const path = connType === "bezier"
         ? PathBuilder.routedBezierPath(points)
@@ -1090,9 +1179,45 @@ export class PersistentRouter {
       }
     }
 
+    // For unblocked edges, generate the React Flow fallback path directly.
     const connType = opts.connectorType ?? "orthogonal";
+    const borderRadius = opts.edgeRounding ?? 0;
+    const directRoutes = new Map<string, { path: string; labelX: number; labelY: number; srcPt: { x: number; y: number }; tgtPt: { x: number; y: number } }>();
+    if (opts.routeOnlyWhenBlocked !== false) {
+      const edgeById = new Map(this.prevEdges.map((e) => [e.id, e]));
+      const buffer = opts.shapeBufferDistance ?? 8;
+      for (const [edgeId, points] of edgePoints) {
+        const edge = edgeById.get(edgeId);
+        if (!edge) continue;
+        const src = points[0], tgt = points[points.length - 1];
+        if (!isEdgeDirectPathBlocked(src, tgt, edge.source, edge.target, this.prevNodes, this.nodeById, buffer)) {
+          const stub = stubMap.get(edgeId);
+          if (stub) {
+            const srcPos = sideFromStub(stub.srcHandlePt, stub.srcStubPt);
+            const tgtPos = sideFromStub(stub.tgtHandlePt, stub.tgtStubPt);
+            const { x: sx, y: sy } = stub.srcHandlePt;
+            const { x: tx, y: ty } = stub.tgtHandlePt;
+            let path: string; let labelX: number; let labelY: number;
+            if (connType === "bezier") {
+              [path, labelX, labelY] = getBezierPath({ sourceX: sx, sourceY: sy, sourcePosition: srcPos, targetX: tx, targetY: ty, targetPosition: tgtPos });
+            } else if (connType === "polyline") {
+              [path, labelX, labelY] = getStraightPath({ sourceX: sx, sourceY: sy, targetX: tx, targetY: ty });
+            } else {
+              [path, labelX, labelY] = getSmoothStepPath({ sourceX: sx, sourceY: sy, sourcePosition: srcPos, targetX: tx, targetY: ty, targetPosition: tgtPos, borderRadius });
+            }
+            directRoutes.set(edgeId, { path, labelX, labelY, srcPt: stub.srcHandlePt, tgtPt: stub.tgtHandlePt });
+          }
+        }
+      }
+    }
+
     const labelFractions = buildLabelFractions(this.prevEdges, edgePoints);
     for (const [edgeId, points] of edgePoints) {
+      const direct = directRoutes.get(edgeId);
+      if (direct) {
+        result[edgeId] = { path: direct.path, labelX: direct.labelX, labelY: direct.labelY, sourceX: direct.srcPt.x, sourceY: direct.srcPt.y, targetX: direct.tgtPt.x, targetY: direct.tgtPt.y };
+        continue;
+      }
       const edgeRounding = opts.edgeRounding ?? 0;
       const path = connType === "bezier"
         ? PathBuilder.routedBezierPath(points)

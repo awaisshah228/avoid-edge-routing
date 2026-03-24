@@ -69,6 +69,8 @@ export interface UseEdgeRoutingOptions {
   /** When true, each edge gets its own stub spread by handleSpacing (fan-out). When false, all edges share one stub and libavoid routes them apart after. Default: true */
   shouldSplitEdgesNearHandle?: boolean;
   autoBestSideConnection?: boolean;
+  /** When true, only route edges whose direct path is blocked by an obstacle. Default: true */
+  routeOnlyWhenBlocked?: boolean;
   debounceMs?: number;
 
   /** If true, re-route in real time while dragging instead of on drag stop. Default: false */
@@ -132,6 +134,7 @@ function toRouterOptions(opts?: UseEdgeRoutingOptions): AvoidRouterOptions {
     // bezier defaults to autoBestSideConnection: true — explicit handles
     // make no visual sense on curved paths, so auto-side is the right default.
     autoBestSideConnection: opts?.autoBestSideConnection ?? (opts?.connectorType === "bezier" ? true : DEFAULT_OPTIONS.autoBestSideConnection),
+    routeOnlyWhenBlocked: opts?.routeOnlyWhenBlocked ?? true,
     debounceMs: opts?.debounceMs ?? DEFAULT_OPTIONS.debounceMs,
   };
 }
@@ -195,9 +198,37 @@ export function useEdgeRouting(
 
   // Full reset on position changes — nodesRef.current must have updated positions
   // by the time this fires (ensured by the debounce + rAF delay).
+  // For bezier, only re-route edges connected to the changed nodes; all others
+  // keep their current routes (merged by the worker listener).
   const sendIncrementalChanges = useCallback(
-    (_nodeIds: string[]) => { sendReset(); },
-    [sendReset]
+    (nodeIds: string[]) => {
+      if (optsRef.current.connectorType !== "bezier" || nodeIds.length === 0) {
+        sendReset();
+        return;
+      }
+
+      const changedSet = new Set(nodeIds);
+      const affectedEdges = edgesRef.current.filter(
+        (e) => changedSet.has(e.source) || changedSet.has(e.target)
+      );
+
+      if (affectedEdges.length === 0 || affectedEdges.length === edgesRef.current.length) {
+        sendReset();
+        return;
+      }
+
+      if (!workerLoaded) return;
+      const enrich = enrichNodeRef.current;
+      const nodes = nodesRef.current;
+      const enrichedNodes = enrich ? nodes.map(enrich) : nodes;
+      post({
+        command: "route",
+        nodes: enrichedNodes as unknown as FlowNode[],
+        edges: affectedEdges as unknown as FlowEdge[],
+        options: optsRef.current,
+      });
+    },
+    [sendReset, post, workerLoaded]
   );
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);

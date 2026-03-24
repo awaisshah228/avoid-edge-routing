@@ -283,7 +283,7 @@ function FlowCanvas() {
     crossingPenalty, hateCrossings, pinInsideOffset,
     nudgeOrthogonalSegmentsConnectedToShapes, nudgeSharedPathsWithCommonEndPoint,
     performUnifyingNudgingPreprocessingStep, nudgeOrthogonalTouchingColinearSegments,
-    debounceMs, realTimeRouting, autoBestSideConnection, hideHandles,
+    debounceMs, realTimeRouting, autoBestSideConnection, hideHandles, routeOnlyWhenBlocked,
   } = useControls("Routing", {
     connectorType: { value: "orthogonal" as ConnectorType, options: ["orthogonal", "bezier", "polyline"] as ConnectorType[], label: "Edge Style" },
     edgeRounding: { value: 0, min: 0, max: 48, step: 1, label: "Rounding" },
@@ -294,6 +294,7 @@ function FlowCanvas() {
     shouldSplitEdgesNearHandle: { value: true, label: "Split Near Handle" },
     autoBestSideConnection: { value: false, label: "Auto Best Side" },
     hateCrossings: { value: false, label: "Avoid Crossings" },
+    routeOnlyWhenBlocked: { value: true, label: "Route Only When Blocked" },
     hideHandles: { value: true, label: "Hide Handles" },
     realTimeRouting: { value: false, label: "Route While Dragging" },
     "Spacing": folder({
@@ -347,7 +348,9 @@ function FlowCanvas() {
 
   useEffect(() => {
     if (connectorType === "bezier") {
-      levaStore.set({ "Routing.edgeToEdgeSpacing": 0, "Routing.edgeToNodeSpacing": 2, "Routing.shouldSplitEdgesNearHandle": false }, false);
+      levaStore.set({ "Routing.edgeToEdgeSpacing": 0, "Routing.edgeToNodeSpacing": 3, "Routing.shouldSplitEdgesNearHandle": false }, false);
+    } else {
+      levaStore.set({ "Routing.edgeToEdgeSpacing": 6, "Routing.edgeToNodeSpacing": 8, "Routing.shouldSplitEdgesNearHandle": true }, false);
     }
   }, [connectorType]);
 
@@ -357,7 +360,7 @@ function FlowCanvas() {
     edgeToNodeSpacing,
     handleSpacing, edgeRounding, diagramGridSize, stubSize, shouldSplitEdgesNearHandle,
     segmentPenalty, anglePenalty, reverseDirectionPenalty, crossingPenalty,
-    hateCrossings, pinInsideOffset, autoBestSideConnection,
+    hateCrossings, pinInsideOffset, autoBestSideConnection, routeOnlyWhenBlocked,
     nudgeOrthogonalSegmentsConnectedToShapes, nudgeSharedPathsWithCommonEndPoint,
     performUnifyingNudgingPreprocessingStep, nudgeOrthogonalTouchingColinearSegments,
     debounceMs, realTimeRouting, enrichNode,
