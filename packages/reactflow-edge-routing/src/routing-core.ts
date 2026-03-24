@@ -199,6 +199,59 @@ function getRouterFlags(connectorType: ConnectorType | undefined): number {
   }
 }
 
+// ---- Label Positioning Helpers ----
+
+/** Walk path points and return the point at fraction t (0–1) of total arc length. */
+function pointAtFraction(points: { x: number; y: number }[], t: number): { x: number; y: number } {
+  if (points.length === 1) return points[0];
+  let total = 0;
+  for (let i = 1; i < points.length; i++) {
+    const dx = points[i].x - points[i - 1].x;
+    const dy = points[i].y - points[i - 1].y;
+    total += Math.sqrt(dx * dx + dy * dy);
+  }
+  const target = total * Math.max(0, Math.min(1, t));
+  let walked = 0;
+  for (let i = 1; i < points.length; i++) {
+    const dx = points[i].x - points[i - 1].x;
+    const dy = points[i].y - points[i - 1].y;
+    const segLen = Math.sqrt(dx * dx + dy * dy);
+    if (walked + segLen >= target) {
+      const frac = segLen > 0 ? (target - walked) / segLen : 0;
+      return { x: points[i - 1].x + dx * frac, y: points[i - 1].y + dy * frac };
+    }
+    walked += segLen;
+  }
+  return points[points.length - 1];
+}
+
+/**
+ * For each edge that has routed points, compute the fraction t (0–1) along
+ * the path where its label should sit. Edges sharing the same source handle
+ * are staggered so their labels don't overlap.
+ */
+function buildLabelFractions(
+  edges: FlowEdge[],
+  edgePoints: Map<string, { x: number; y: number }[]>
+): Map<string, number> {
+  const groups = new Map<string, string[]>();
+  for (const edge of edges) {
+    if (!edgePoints.has(edge.id)) continue;
+    const key = `${edge.source}|${edge.sourceHandle ?? ""}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(edge.id);
+  }
+  const fractions = new Map<string, number>();
+  for (const group of groups.values()) {
+    const n = group.length;
+    const step = Math.min(0.12, 0.4 / Math.max(1, n - 1));
+    for (let i = 0; i < n; i++) {
+      fractions.set(group[i], 0.5 + (i - (n - 1) / 2) * step);
+    }
+  }
+  return fractions;
+}
+
 // ---- Geometry ----
 
 export class Geometry {
@@ -868,6 +921,7 @@ export class RoutingEngine {
     }
 
     const connType = opts.connectorType ?? "orthogonal";
+    const labelFractions = buildLabelFractions(edges, edgePoints);
     for (const [edgeId, points] of edgePoints) {
       const edgeRounding = opts.edgeRounding ?? 0;
       const path = connType === "bezier"
@@ -875,8 +929,8 @@ export class RoutingEngine {
         : edgeRounding > 0
           ? PathBuilder.polylineToPath(points.length, (i) => points[i], { cornerRadius: edgeRounding })
           : PathBuilder.pointsToSvgPath(points);
-      const mid = Math.floor(points.length / 2);
-      const midP = points[mid];
+      const t = labelFractions.get(edgeId) ?? 0.5;
+      const midP = pointAtFraction(points, t);
       const labelP = gridSize > 0 ? Geometry.snapToGrid(midP.x, midP.y, gridSize) : midP;
       const first = points[0];
       const last = points[points.length - 1];
@@ -1037,6 +1091,7 @@ export class PersistentRouter {
     }
 
     const connType = opts.connectorType ?? "orthogonal";
+    const labelFractions = buildLabelFractions(this.prevEdges, edgePoints);
     for (const [edgeId, points] of edgePoints) {
       const edgeRounding = opts.edgeRounding ?? 0;
       const path = connType === "bezier"
@@ -1044,10 +1099,8 @@ export class PersistentRouter {
         : edgeRounding > 0
           ? PathBuilder.polylineToPath(points.length, (i) => points[i], { cornerRadius: edgeRounding })
           : PathBuilder.pointsToSvgPath(points);
-
-
-      const mid = Math.floor(points.length / 2);
-      const midP = points[mid];
+      const t = labelFractions.get(edgeId) ?? 0.5;
+      const midP = pointAtFraction(points, t);
       const labelP = gridSize > 0 ? Geometry.snapToGrid(midP.x, midP.y, gridSize) : midP;
       const first = points[0];
       const last = points[points.length - 1];
