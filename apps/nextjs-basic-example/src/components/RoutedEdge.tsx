@@ -17,7 +17,7 @@ function RoutedEdgeComponent({
   selected,
   markerEnd,
 }: EdgeProps) {
-  const [edgePath] = useRoutedEdgePath({
+  const [edgePath, , , wasRouted] = useRoutedEdgePath({
     id,
     source,
     target,
@@ -37,10 +37,11 @@ function RoutedEdgeComponent({
       path={edgePath}
       markerEnd={markerEnd}
       style={{
-        stroke: selected ? "#2563eb" : "#94a3b8",
+        stroke: selected ? "#2563eb" : wasRouted ? "#94a3b8" : "#94a3b8",
         strokeWidth: selected ? 2.5 : 1.5,
         strokeLinecap: "round",
         strokeLinejoin: "round",
+        strokeDasharray: wasRouted ? undefined : "12 4",
       }}
     />
   );

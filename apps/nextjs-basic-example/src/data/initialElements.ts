@@ -1,18 +1,27 @@
 import type { Node, Edge } from "@xyflow/react";
 
 /**
- * Initial nodes — diamond layout with a blocker in the centre.
+ * Initial nodes — 2×2 grid layout with a blocker in the centre.
  *
- * Node A (left) → Node B (top) and Node C (bottom) → Node D (right).
- * The Blocker sits between them so the router must go around it.
+ * Node A (top-left) and Node B (bottom-left) on the left.
+ * Node C (top-right) and Node D (bottom-right) on the right.
+ * The Blocker sits in the centre so the router must go around it.
  */
+// Layout:
+//
+//   Node A (100, 100)               Node C (660, 180)
+//
+//                     [Blocker (490, 390)]
+//
+//   Node B (100, 560)               Node D (860, 560)
+//
 export const initialNodes: Node[] = [
-  { id: "1", type: "basic",   position: { x: 50,  y: 265 }, data: { label: "Node A" } },
-  { id: "2", type: "basic",   position: { x: 500, y: 80  }, data: { label: "Node B" } },
-  { id: "3", type: "basic",   position: { x: 500, y: 460 }, data: { label: "Node C" } },
-  { id: "4", type: "basic",   position: { x: 950, y: 265 }, data: { label: "Node D" } },
-  // Obstacle — no edges attached, just blocks the straight-line paths
-  { id: "5", type: "blocker", position: { x: 480, y: 270 }, data: { label: "Blocker" } },
+  { id: "1", type: "basic",   position: { x: 100, y: 100 }, data: { label: "Node A" } },
+  { id: "2", type: "basic",   position: { x: 100, y: 560 }, data: { label: "Node B" } },
+  { id: "3", type: "basic",   position: { x: 660, y: 180 }, data: { label: "Node C" } },
+  { id: "4", type: "basic",   position: { x: 860, y: 560 }, data: { label: "Node D" } },
+  // Obstacle — no edges, sits in the centre so the router goes around it
+  { id: "5", type: "blocker", position: { x: 490, y: 390 }, data: { label: "Blocker" } },
 ];
 
 /**
