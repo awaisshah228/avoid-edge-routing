@@ -287,32 +287,7 @@ function segmentIntersectsRect(
   return tMin <= tMax;
 }
 
-/**
- * Slab-only intersection (no endpoint-inside early return).
- * Returns true only if the segment genuinely enters the rect from outside —
- * i.e. tMin > small epsilon, meaning the path travels meaningfully through
- * the node interior rather than just touching its boundary at the start/end.
- */
-function segmentPassesThroughNode(
-  p1: { x: number; y: number },
-  p2: { x: number; y: number },
-  rect: { x: number; y: number; w: number; h: number }
-): boolean {
-  const { x: rx, y: ry, w: rw, h: rh } = rect;
-  const dx = p2.x - p1.x, dy = p2.y - p1.y;
-  let tMin = 0, tMax = 1;
-  if (Math.abs(dx) < 1e-10) { if (p1.x < rx || p1.x > rx + rw) return false; }
-  else { const t1 = (rx - p1.x) / dx, t2 = (rx + rw - p1.x) / dx; tMin = Math.max(tMin, Math.min(t1, t2)); tMax = Math.min(tMax, Math.max(t1, t2)); }
-  if (Math.abs(dy) < 1e-10) { if (p1.y < ry || p1.y > ry + rh) return false; }
-  else { const t1 = (ry - p1.y) / dy, t2 = (ry + rh - p1.y) / dy; tMin = Math.max(tMin, Math.min(t1, t2)); tMax = Math.min(tMax, Math.max(t1, t2)); }
-  // tMin > 0.02: the path enters the node from clearly outside (stub places srcPt/tgtPt
-  // just outside the node, so any real traversal will have tMin well above zero)
-  return tMin <= tMax && tMin > 0.02;
-}
-
-/** Returns true if the direct line from srcPt to tgtPt is blocked by any obstacle node.
- *  Other nodes use a buffered check; source/target nodes only count if the path
- *  passes significantly through their interior (e.g. edge going backward through its own node). */
+/** Returns true if the direct line from srcPt to tgtPt is blocked by any node except the source/target nodes. */
 function isEdgeDirectPathBlocked(
   srcPt: { x: number; y: number },
   tgtPt: { x: number; y: number },

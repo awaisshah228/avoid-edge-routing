@@ -348,7 +348,7 @@ function FlowCanvas() {
 
   useEffect(() => {
     if (connectorType === "bezier") {
-      levaStore.set({ "Routing.edgeToEdgeSpacing": 0, "Routing.edgeToNodeSpacing": 4, "Routing.shouldSplitEdgesNearHandle": false }, false);
+      levaStore.set({ "Routing.edgeToEdgeSpacing": 0, "Routing.edgeToNodeSpacing": 12, "Routing.shouldSplitEdgesNearHandle": false }, false);
     } else {
       levaStore.set({ "Routing.edgeToEdgeSpacing": 6, "Routing.edgeToNodeSpacing": 8, "Routing.shouldSplitEdgesNearHandle": true }, false);
     }
