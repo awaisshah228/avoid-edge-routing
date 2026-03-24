@@ -287,8 +287,7 @@ function segmentIntersectsRect(
   return tMin <= tMax;
 }
 
-/** Returns true if the direct line from srcPt to tgtPt is blocked by any node,
- *  including the source/target nodes themselves (e.g. edge going backward through its own node). */
+/** Returns true if the direct line from srcPt to tgtPt is blocked by any node except the source/target nodes. */
 function isEdgeDirectPathBlocked(
   srcPt: { x: number; y: number },
   tgtPt: { x: number; y: number },
@@ -298,25 +297,10 @@ function isEdgeDirectPathBlocked(
   nodeById: Map<string, FlowNode>,
   buffer: number
 ): boolean {
-  const dx = tgtPt.x - srcPt.x, dy = tgtPt.y - srcPt.y;
-  const len = Math.sqrt(dx * dx + dy * dy);
   for (const node of nodes) {
+    if (node.id === srcNodeId || node.id === tgtNodeId) continue;
     const bounds = Geometry.getNodeBoundsAbsolute(node, nodeById);
-    if (node.id === srcNodeId || node.id === tgtNodeId) {
-      // The handle point sits on the node border, so a plain intersection check would
-      // always trigger. Nudge 1 px along the segment away from the handle and check
-      // from there — avoids the border false-positive while still catching lines that
-      // go backward through the node body.
-      if (len < 1e-6) continue;
-      const isSrc = node.id === srcNodeId;
-      const nudged = isSrc
-        ? { x: srcPt.x + dx / len, y: srcPt.y + dy / len }
-        : { x: tgtPt.x - dx / len, y: tgtPt.y - dy / len };
-      const otherEnd = isSrc ? tgtPt : srcPt;
-      if (segmentIntersectsRect(nudged, otherEnd, bounds, buffer)) return true;
-    } else {
-      if (segmentIntersectsRect(srcPt, tgtPt, bounds, buffer)) return true;
-    }
+    if (segmentIntersectsRect(srcPt, tgtPt, bounds, buffer)) return true;
   }
   return false;
 }
