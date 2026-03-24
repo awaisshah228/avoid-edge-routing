@@ -42,10 +42,8 @@ import { autoLayoutGroupNodes, autoLayoutGroupEdges } from "./data/initialElemen
 // ---------------------------------------------------------------------------
 
 function pinYs(h: number, count: number): number[] {
-  const bodyY = 4;
-  const bodyH = h - 8;
   return Array.from({ length: count }, (_, i) =>
-    Math.round((bodyY + (bodyH * (i + 1)) / (count + 1)) * 10) / 10
+    Math.round((h * (i + 1)) / (count + 1) * 10) / 10
   );
 }
 
@@ -53,10 +51,10 @@ const SPLIT_W = 80, SPLIT_H = 70;
 const [splitInY] = pinYs(SPLIT_H, 1);
 const [splitOutY1, splitOutY2, splitOutY3] = pinYs(SPLIT_H, 3);
 
-const SplitterNode = memo(({ selected }: NodeProps) => (
-  <div style={{ width: SPLIT_W, height: SPLIT_H, position: "relative", borderRadius: 8, outline: selected ? "2px solid #6366f1" : undefined, outlineOffset: 2 }}>
+const SplitterNode = memo((_props: NodeProps) => (
+  <div style={{ width: SPLIT_W, height: SPLIT_H, position: "relative", borderRadius: 8 }}>
     <svg viewBox={`0 0 ${SPLIT_W} ${SPLIT_H}`} width={SPLIT_W} height={SPLIT_H}>
-      <rect x={4} y={4} width={SPLIT_W - 8} height={SPLIT_H - 8} rx={6} fill="#dbeafe" stroke="#3b82f6" strokeWidth={1.5} />
+      <rect x={0} y={0} width={SPLIT_W} height={SPLIT_H} rx={6} fill="#dbeafe" stroke="#3b82f6" strokeWidth={1.5} />
       <text x={SPLIT_W / 2} y={SPLIT_H / 2 + 1} textAnchor="middle" dominantBaseline="middle" fontSize={11} fill="#1d4ed8" fontWeight="bold" fontFamily="sans-serif">Split</text>
     </svg>
     <Handle id="in" type="target" position={Position.Left} style={{ left: 0, top: splitInY, width: 8, height: 8, background: "#3b82f6", border: "2px solid #1d4ed8", transform: "translate(-50%, -50%)" }} />
@@ -70,10 +68,10 @@ const MERGE_W = 80, MERGE_H = 70;
 const [mergeInY1, mergeInY2, mergeInY3] = pinYs(MERGE_H, 3);
 const [mergeOutY] = pinYs(MERGE_H, 1);
 
-const MergerNode = memo(({ selected }: NodeProps) => (
-  <div style={{ width: MERGE_W, height: MERGE_H, position: "relative", borderRadius: 8, outline: selected ? "2px solid #6366f1" : undefined, outlineOffset: 2 }}>
+const MergerNode = memo((_props: NodeProps) => (
+  <div style={{ width: MERGE_W, height: MERGE_H, position: "relative", borderRadius: 8 }}>
     <svg viewBox={`0 0 ${MERGE_W} ${MERGE_H}`} width={MERGE_W} height={MERGE_H}>
-      <rect x={4} y={4} width={MERGE_W - 8} height={MERGE_H - 8} rx={6} fill="#fef3c7" stroke="#f59e0b" strokeWidth={1.5} />
+      <rect x={0} y={0} width={MERGE_W} height={MERGE_H} rx={6} fill="#fef3c7" stroke="#f59e0b" strokeWidth={1.5} />
       <text x={MERGE_W / 2} y={MERGE_H / 2 + 1} textAnchor="middle" dominantBaseline="middle" fontSize={11} fill="#92400e" fontWeight="bold" fontFamily="sans-serif">Merge</text>
     </svg>
     <Handle id="in-0" type="target" position={Position.Left} style={{ left: 0, top: mergeInY1, width: 8, height: 8, background: "#f59e0b", border: "2px solid #92400e", transform: "translate(-50%, -50%)" }} />
@@ -87,10 +85,10 @@ const PROC_W = 100, PROC_H = 60;
 const [procInY1, procInY2] = pinYs(PROC_H, 2);
 const [procOutY1, procOutY2] = pinYs(PROC_H, 2);
 
-const ProcessNode = memo(({ data, selected }: NodeProps) => (
-  <div style={{ width: PROC_W, height: PROC_H, position: "relative", borderRadius: 8, outline: selected ? "2px solid #6366f1" : undefined, outlineOffset: 2 }}>
+const ProcessNode = memo(({ data }: NodeProps) => (
+  <div style={{ width: PROC_W, height: PROC_H, position: "relative", borderRadius: 8 }}>
     <svg viewBox={`0 0 ${PROC_W} ${PROC_H}`} width={PROC_W} height={PROC_H}>
-      <rect x={4} y={4} width={PROC_W - 8} height={PROC_H - 8} rx={6} fill="#e0e7ff" stroke="#6366f1" strokeWidth={1.5} />
+      <rect x={0} y={0} width={PROC_W} height={PROC_H} rx={6} fill="#e0e7ff" stroke="#6366f1" strokeWidth={1.5} />
       <text x={PROC_W / 2} y={PROC_H / 2 + 1} textAnchor="middle" dominantBaseline="middle" fontSize={11} fill="#4338ca" fontWeight="bold" fontFamily="sans-serif">
         {(data as { label?: string })?.label ?? "Process"}
       </text>
@@ -105,7 +103,7 @@ const ProcessNode = memo(({ data, selected }: NodeProps) => (
 // Generic multi-handle node — reads handle counts + style from data
 const BASIC_W = 140, BASIC_H = 50;
 
-const BasicMultiNode = memo(({ data, selected }: NodeProps) => {
+const BasicMultiNode = memo(({ data }: NodeProps) => {
   const d = data as {
     label?: string;
     sources?: number;
@@ -128,9 +126,9 @@ const BasicMultiNode = memo(({ data, selected }: NodeProps) => {
   const srcYs = pinYs(h, sources);
 
   return (
-    <div style={{ width: w, height: h, position: "relative", opacity: d.opacity ?? 1, outline: selected ? "2px solid #6366f1" : undefined, outlineOffset: 2 }}>
+    <div style={{ width: w, height: h, position: "relative", opacity: d.opacity ?? 1 }}>
       <svg viewBox={`0 0 ${w} ${h}`} width={w} height={h}>
-        <rect x={2} y={2} width={w - 4} height={h - 4} rx={radius} fill={fill} stroke={borderColor} strokeWidth={1.5} />
+        <rect x={0} y={0} width={w} height={h} rx={radius} fill={fill} stroke={borderColor} strokeWidth={1.5} />
         <text x={w / 2} y={h / 2 + 1} textAnchor="middle" dominantBaseline="middle" fontSize={12} fill={textColor} fontWeight="600" fontFamily="sans-serif">
           {d.label ?? "Node"}
         </text>
@@ -203,7 +201,7 @@ const EXAMPLES: ExampleDef[] = [
   { key: "subflows", label: "Subflows", nodes: subflowNodes, edges: subflowEdges, skipLayout: true },
   { key: "dag", label: "DAG", nodes: dagNodes, edges: dagEdges, layout: { direction: "TB", elkMode: "layered", spacing: 30 } },
   { key: "tree", label: "Tree", nodes: treeNodes, edges: treeEdges, layout: { direction: "TB", elkMode: "mrtree", spacing: 20 } },
-  { key: "auto-layout", label: "Auto Layout", nodes: elkNodes, edges: elkEdges, layout: { direction: "LR", elkMode: "layered", spacing: 30 } },
+  { key: "auto-layout", label: "Auto Layout", nodes: elkNodes, edges: elkEdges, layout: { direction: "LR", elkMode: "mrtree", spacing: 30 } },
   { key: "auto-layout-groups", label: "Layout+Groups", nodes: autoLayoutGroupNodes, edges: autoLayoutGroupEdges, layout: { direction: "LR", elkMode: "layered", spacing: 30 } },
   { key: "stress", label: "Stress (200)", nodes: stressNodes, edges: stressEdges, skipLayout: true },
 ];
@@ -271,22 +269,24 @@ function FlowCanvas() {
   // Leva routing settings
   const {
     connectorType, edgeToEdgeSpacing, edgeToNodeSpacing, handleSpacing,
-    edgeRounding, segmentPenalty, anglePenalty, reverseDirectionPenalty,
+    edgeRounding, diagramGridSize, shouldSplitEdgesNearHandle, segmentPenalty, anglePenalty, reverseDirectionPenalty,
     crossingPenalty, hateCrossings, pinInsideOffset,
     nudgeOrthogonalSegmentsConnectedToShapes, nudgeSharedPathsWithCommonEndPoint,
     performUnifyingNudgingPreprocessingStep, nudgeOrthogonalTouchingColinearSegments,
     debounceMs, realTimeRouting, autoBestSideConnection, hideHandles,
   } = useControls("Routing", {
     connectorType: { value: "orthogonal" as ConnectorType, options: ["orthogonal", "bezier", "polyline"] as ConnectorType[], label: "Edge Style" },
-    edgeRounding: { value: 8, min: 0, max: 30, step: 1, label: "Rounding" },
-    edgeToEdgeSpacing: { value: 13, min: 1, max: 40, step: 1, label: "Edge↔Edge" },
-    edgeToNodeSpacing: { value: 8, min: 1, max: 60, step: 1, label: "Edge↔Node" },
+    edgeRounding: { value: 12, min: 0, max: 48, step: 1, label: "Rounding" },
+    edgeToEdgeSpacing: { value: 4, min: 0, max: 12, step: 1, label: "Edge↔Edge" },
+    edgeToNodeSpacing: { value: 8, min: 0, max: 48, step: 1, label: "Edge↔Node" },
+    diagramGridSize: { value: 0, min: 0, max: 48, step: 1, label: "Grid Size" },
+    shouldSplitEdgesNearHandle: { value: true, label: "Split Edges Near Handle" },
     autoBestSideConnection: { value: true, label: "Auto Best Side" },
     hateCrossings: { value: false, label: "Avoid Crossings" },
     hideHandles: { value: true, label: "Hide Handles" },
     realTimeRouting: { value: false, label: "Route While Dragging" },
     "Spacing": folder({
-      handleSpacing: { value: 13, min: 1, max: 60, step: 1, label: "Handle" },
+      handleSpacing: { value: 4, min: 1, max: 60, step: 1, label: "Handle" },
       pinInsideOffset: { value: 0, min: 0, max: 20, step: 1, label: "Pin Offset" },
     }, { collapsed: true }),
     "Penalties": folder({
@@ -335,7 +335,7 @@ function FlowCanvas() {
   const enrichNode = useMemo(() => createEnrichNode(getInternalNode), [getInternalNode]);
 
   const { updateRoutingOnNodesChange, resetRouting } = useEdgeRouting(nodes, edges, {
-    connectorType, edgeToEdgeSpacing, edgeToNodeSpacing, handleSpacing, edgeRounding,
+    connectorType, edgeToEdgeSpacing, edgeToNodeSpacing, handleSpacing, edgeRounding, diagramGridSize, shouldSplitEdgesNearHandle,
     segmentPenalty, anglePenalty, reverseDirectionPenalty, crossingPenalty,
     hateCrossings, pinInsideOffset, autoBestSideConnection,
     nudgeOrthogonalSegmentsConnectedToShapes, nudgeSharedPathsWithCommonEndPoint,
@@ -436,8 +436,25 @@ function FlowCanvas() {
 export default function App() {
   return (
     <ReactFlowProvider>
-      <Leva titleBar={{ title: "Edge Routing" }} collapsed={false} />
-      <style>{`.hide-handles .react-flow__handle { visibility: hidden; }`}</style>
+      <Leva titleBar={{ title: "Edge Routing" }} collapsed={false} theme={{ sizes: { rootWidth: "360px" } }} />
+      <style>{`
+        .hide-handles .react-flow__handle { visibility: hidden; }
+        div[class*="leva-"] label > div {
+          overflow: visible !important;
+          text-overflow: unset !important;
+          white-space: normal !important;
+          word-break: break-word !important;
+          line-height: 1.3 !important;
+        }
+        div[class*="leva-"] label input[type="checkbox"] {
+          width: 18px !important;
+          height: 18px !important;
+        }
+        div[class*="leva-"] label svg {
+          width: 18px !important;
+          height: 18px !important;
+        }
+      `}</style>
       <FlowCanvas />
     </ReactFlowProvider>
   );
