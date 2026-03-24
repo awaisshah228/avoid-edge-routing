@@ -22,7 +22,7 @@ import {
   MarkerType,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { useControls, folder, button, Leva } from "leva";
+import { useControls, folder, button, Leva, levaStore } from "leva";
 import { useEdgeRouting, resolveCollisions, type ConnectorType } from "reactflow-edge-routing";
 import { RoutedEdge } from "./RoutedEdge";
 import { createEnrichNode } from "./enrichNode";
@@ -345,8 +345,17 @@ function FlowCanvas() {
 
   const enrichNode = useMemo(() => createEnrichNode(getInternalNode), [getInternalNode]);
 
+  useEffect(() => {
+    if (connectorType === "bezier") {
+      levaStore.set({ "Routing.edgeToEdgeSpacing": 0, "Routing.edgeToNodeSpacing": 2, "Routing.shouldSplitEdgesNearHandle": false }, false);
+    }
+  }, [connectorType]);
+
   const { updateRoutingOnNodesChange, resetRouting } = useEdgeRouting(nodes, edges, {
-    connectorType, edgeToEdgeSpacing, edgeToNodeSpacing, handleSpacing, edgeRounding, diagramGridSize, stubSize, shouldSplitEdgesNearHandle,
+    connectorType,
+    edgeToEdgeSpacing,
+    edgeToNodeSpacing,
+    handleSpacing, edgeRounding, diagramGridSize, stubSize, shouldSplitEdgesNearHandle,
     segmentPenalty, anglePenalty, reverseDirectionPenalty, crossingPenalty,
     hateCrossings, pinInsideOffset, autoBestSideConnection,
     nudgeOrthogonalSegmentsConnectedToShapes, nudgeSharedPathsWithCommonEndPoint,
