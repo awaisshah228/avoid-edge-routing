@@ -10,7 +10,8 @@
       "Bash(ls /Users/awaisshah228/Documents/avoid-edge-routing/*.md)",
       "Bash(git mv:*)",
       "Bash(lsof -iTCP -sTCP:LISTEN -P)",
-      "Read(//Users/awaisshah228/Documents/avoid-edge-routing/$9 ~ /**)"
+      "Read(//Users/awaisshah228/Documents/avoid-edge-routing/$9 ~ /**)",
+      "Bash(npm whoami:*)"
     ],
     "additionalDirectories": [
       "/Users/awaisshah228/Documents/coding/ai-diagram-generator/avoid-nodes-pro-example/assets"
