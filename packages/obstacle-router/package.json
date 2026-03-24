@@ -1,5 +1,5 @@
 {
-  "name": "libavoid-js",
+  "name": "obstacle-router",
   "version": "0.1.0",
   "description": "TypeScript port of libavoid - Fast, Incremental, Object-avoiding Line Router",
   "main": "./dist/index.js",
@@ -39,7 +39,7 @@
   },
   "repository": {
     "type": "git",
-    "directory": "packages/libavoid-js"
+    "directory": "packages/obstacle-router"
   },
   "devDependencies": {
     "typescript": "^5.9.3"

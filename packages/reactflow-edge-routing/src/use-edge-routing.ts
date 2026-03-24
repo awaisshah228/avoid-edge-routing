@@ -148,6 +148,7 @@ export function useEdgeRouting(
 
   const setRoutes = useEdgeRoutingStore((s) => s.setRoutes);
   const setConnectorType = useEdgeRoutingStore((s) => s.setConnectorType);
+  const setDraggingNodeIds = useEdgeRoutingStore((s) => s.setDraggingNodeIds);
   const setActions = useEdgeRoutingActionsStore((s) => s.setActions);
 
   // Keep store in sync with current connector type
@@ -226,6 +227,14 @@ export function useEdgeRouting(
       }
 
       if (!hasPosition && !hasDimensions && !hasAddOrRemove) return;
+
+      // Track which nodes are being dragged so useRoutedEdgePath shows fallback
+      if (isDragging) {
+        setDraggingNodeIds(new Set(draggingNodeIds));
+      } else if (hasPosition) {
+        // Position change without dragging = drag ended
+        setDraggingNodeIds(new Set());
+      }
 
       const realTime = realTimeRoutingRef.current;
 

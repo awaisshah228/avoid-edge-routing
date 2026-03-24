@@ -46,7 +46,7 @@ import {
   generateStaticOrthogonalVisGraph,
   improveOrthogonalRoutes,
   vertexVisibility,
-} from "libavoid-js";
+} from "obstacle-router";
 
 // ---- Types ----
 
