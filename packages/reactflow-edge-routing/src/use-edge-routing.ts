@@ -64,10 +64,10 @@ export interface UseEdgeRoutingOptions {
   // --- Rendering / layout ---
   edgeRounding?: number;
   diagramGridSize?: number;
-  /** When true, edges spread out along the node border near handles. When false, edges converge to exact handle point. Default: true */
-  shouldSplitEdgesNearHandle?: boolean;
-  /** Length (px) of the stub segment when shouldSplitEdgesNearHandle is off. Default: 20 */
+  /** Length (px) of the stub exit segment from the node border. Default: 20 */
   stubSize?: number;
+  /** When true, each edge gets its own stub spread by handleSpacing (fan-out). When false, all edges share one stub and libavoid routes them apart after. Default: true */
+  shouldSplitEdgesNearHandle?: boolean;
   autoBestSideConnection?: boolean;
   debounceMs?: number;
 
@@ -90,7 +90,6 @@ const DEFAULT_OPTIONS: UseEdgeRoutingOptions = {
   edgeToNodeSpacing: 8,
   handleSpacing: 2,
   diagramGridSize: 0,
-  shouldSplitEdgesNearHandle: true,
   autoBestSideConnection: false,
   debounceMs: 0,
 };
@@ -100,7 +99,7 @@ function toRouterOptions(opts?: UseEdgeRoutingOptions): AvoidRouterOptions {
     // Core spacing
     idealNudgingDistance: opts?.edgeToEdgeSpacing ?? DEFAULT_OPTIONS.edgeToEdgeSpacing,
     shapeBufferDistance: opts?.edgeToNodeSpacing ?? DEFAULT_OPTIONS.edgeToNodeSpacing,
-    handleNudgingDistance: opts?.handleSpacing ?? DEFAULT_OPTIONS.handleSpacing,
+    handleNudgingDistance: opts?.handleSpacing ?? opts?.edgeToEdgeSpacing ?? DEFAULT_OPTIONS.edgeToEdgeSpacing,
 
     // Routing parameters
     segmentPenalty: opts?.segmentPenalty,
@@ -128,8 +127,8 @@ function toRouterOptions(opts?: UseEdgeRoutingOptions): AvoidRouterOptions {
     // Rendering
     edgeRounding: opts?.edgeRounding ?? DEFAULT_OPTIONS.edgeRounding,
     diagramGridSize: opts?.diagramGridSize ?? DEFAULT_OPTIONS.diagramGridSize,
-    shouldSplitEdgesNearHandle: opts?.shouldSplitEdgesNearHandle ?? DEFAULT_OPTIONS.shouldSplitEdgesNearHandle,
-    stubSize: opts?.stubSize,
+    stubSize: opts?.stubSize ?? opts?.edgeToEdgeSpacing ?? DEFAULT_OPTIONS.edgeToEdgeSpacing,
+    shouldSplitEdgesNearHandle: opts?.shouldSplitEdgesNearHandle ?? true,
     // bezier defaults to autoBestSideConnection: true — explicit handles
     // make no visual sense on curved paths, so auto-side is the right default.
     autoBestSideConnection: opts?.autoBestSideConnection ?? (opts?.connectorType === "bezier" ? true : DEFAULT_OPTIONS.autoBestSideConnection),

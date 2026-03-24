@@ -114,10 +114,10 @@ export type AvoidRouterOptions = {
   edgeRounding?: number;
   /** Snap waypoints to grid. Default: 0 (no grid) */
   diagramGridSize?: number;
-  /** When true, edges spread out along the node border near handles (pin-based). When false, edges converge to exact handle point. Default: true */
-  shouldSplitEdgesNearHandle?: boolean;
-  /** Length (px) of the stub segment when shouldSplitEdgesNearHandle is off. Default: 20 */
+  /** Length (px) of the stub exit segment from the node border. Default: 20 */
   stubSize?: number;
+  /** When true, each edge gets its own stub spread laterally by handleSpacing (fan-out at handle). When false, all edges share one stub exit point and libavoid routes them apart after. Default: true */
+  shouldSplitEdgesNearHandle?: boolean;
   /** Auto-select best connection side based on relative node positions. Default: true */
   autoBestSideConnection?: boolean;
   /** Debounce delay for routing updates (ms). Default: 0 */
@@ -613,10 +613,8 @@ function configureRouter(router: AvoidRouter, options: AvoidRouterOptions): void
   }
 
   // --- Routing options ---
-  const splitNearHandle = options.shouldSplitEdgesNearHandle ?? true;
-  // When splitNearHandle is off, disable nudging at shapes so edges converge to exact handle point
-  router.setRoutingOption(nudgeOrthogonalSegmentsConnectedToShapesOpt, splitNearHandle ? (options.nudgeOrthogonalSegmentsConnectedToShapes ?? true) : false);
-  router.setRoutingOption(nudgeSharedPathsWithCommonEndPointOpt, splitNearHandle ? (options.nudgeSharedPathsWithCommonEndPoint ?? true) : false);
+  router.setRoutingOption(nudgeOrthogonalSegmentsConnectedToShapesOpt, options.nudgeOrthogonalSegmentsConnectedToShapes ?? true);
+  router.setRoutingOption(nudgeSharedPathsWithCommonEndPointOpt, options.nudgeSharedPathsWithCommonEndPoint ?? true);
   router.setRoutingOption(performUnifyingNudgingPreprocessingStepOpt, options.performUnifyingNudgingPreprocessingStep ?? true);
   router.setRoutingOption(nudgeOrthogonalTouchingColinearSegmentsOpt, options.nudgeOrthogonalTouchingColinearSegments ?? false);
   router.setRoutingOption(improveHyperedgeRoutesMovingJunctionsOpt, options.improveHyperedgeRoutesMovingJunctions ?? true);
@@ -686,17 +684,6 @@ function createObstacles(
 }
 
 
-/**
- * Find the first enriched pin matching a handle type (source/target).
- * Used when edge.sourceHandle/targetHandle is null (default handles).
- */
-function findDefaultHandle(node: FlowNode, kind: "source" | "target"): string | null {
-  const pins = (node._handlePins as HandlePin[] | undefined) ?? [];
-  // Enriched pins from default handles are named __source_N or __target_N
-  const prefix = `__${kind}_`;
-  const pin = pins.find((p) => p.handleId.startsWith(prefix));
-  return pin?.handleId ?? null;
-}
 
 
 /** Offset a point away from the node border by stubLength in the direction of the side */
@@ -709,36 +696,85 @@ function offsetFromSide(pt: { x: number; y: number }, side: HandlePosition, stub
   }
 }
 
-/** Info needed to add stubs after routing when splitNearHandle is off */
+/** Shift a point laterally along a node border (perpendicular to the exit direction) */
+function applyLateralOffset(pt: { x: number; y: number }, side: HandlePosition, offset: number): { x: number; y: number } {
+  switch (side) {
+    case "left":
+    case "right": return { x: pt.x, y: pt.y + offset };
+    case "top":
+    case "bottom": return { x: pt.x + offset, y: pt.y };
+  }
+}
+
+
+/** Info needed to add stubs after routing */
 type StubInfo = {
   edgeId: string;
   srcHandlePt: { x: number; y: number };
   tgtHandlePt: { x: number; y: number };
+  srcStubPt: { x: number; y: number };
+  tgtStubPt: { x: number; y: number };
+  merged: boolean; // true = shared stub mode (splitNearHandle=false)
 };
 
 function createConnections(
   router: AvoidRouter,
   edges: FlowEdge[],
   nodeById: Map<string, FlowNode>,
-  shapeRefMap: Map<string, AvoidShapeRef>,
-  pinRegistry: PinRegistry,
   options: AvoidRouterOptions
 ): { connRefs: { edgeId: string; connRef: AvoidConnRef }[]; stubs: StubInfo[] } {
   const connRefs: { edgeId: string; connRef: AvoidConnRef }[] = [];
   const stubs: StubInfo[] = [];
   const autoBestSide = options.autoBestSideConnection ?? true;
-  const splitNearHandle = options.shouldSplitEdgesNearHandle ?? true;
   const stubLength = options.stubSize ?? 20;
+  const handleSpacing = options.handleNudgingDistance ?? 0;
   const connType = getConnType(options.connectorType);
   const hateCrossings = options.hateCrossings ?? false;
+
+  // Pre-pass: group edges by node+side and compute lateral fan-out offsets so each edge
+  // gets its own stub spread by handleSpacing pixels along the node border.
+  const stubLateralOffsets = new Map<string, { srcOffset: number; tgtOffset: number }>();
+  const splitNearHandle = options.shouldSplitEdgesNearHandle ?? true;
+  if (splitNearHandle && handleSpacing > 0) {
+    const srcGroups = new Map<string, string[]>();
+    const tgtGroups = new Map<string, string[]>();
+    for (const edge of edges) {
+      const src = nodeById.get(edge.source);
+      const tgt = nodeById.get(edge.target);
+      if (!src || !tgt) continue;
+      const sb = Geometry.getNodeBoundsAbsolute(src, nodeById);
+      const tb = Geometry.getNodeBoundsAbsolute(tgt, nodeById);
+      const srcSide = autoBestSide ? Geometry.getBestSides(sb, tb).sourcePos : Geometry.getHandlePosition(src, "source");
+      const tgtSide = autoBestSide ? Geometry.getBestSides(sb, tb).targetPos : Geometry.getHandlePosition(tgt, "target");
+      const sk = `${edge.source}:${srcSide}`;
+      const tk = `${edge.target}:${tgtSide}`;
+      if (!srcGroups.has(sk)) srcGroups.set(sk, []);
+      srcGroups.get(sk)!.push(edge.id);
+      if (!tgtGroups.has(tk)) tgtGroups.set(tk, []);
+      tgtGroups.get(tk)!.push(edge.id);
+    }
+    for (const [, ids] of srcGroups) {
+      const n = ids.length;
+      ids.forEach((id, i) => {
+        const prev = stubLateralOffsets.get(id) ?? { srcOffset: 0, tgtOffset: 0 };
+        prev.srcOffset = (i - (n - 1) / 2) * handleSpacing;
+        stubLateralOffsets.set(id, prev);
+      });
+    }
+    for (const [, ids] of tgtGroups) {
+      const n = ids.length;
+      ids.forEach((id, i) => {
+        const prev = stubLateralOffsets.get(id) ?? { srcOffset: 0, tgtOffset: 0 };
+        prev.tgtOffset = (i - (n - 1) / 2) * handleSpacing;
+        stubLateralOffsets.set(id, prev);
+      });
+    }
+  }
 
   for (const edge of edges) {
     const src = nodeById.get(edge.source);
     const tgt = nodeById.get(edge.target);
     if (!src || !tgt) continue;
-
-    const srcShapeRef = shapeRefMap.get(edge.source);
-    const tgtShapeRef = shapeRefMap.get(edge.target);
 
     const srcBounds = Geometry.getNodeBoundsAbsolute(src, nodeById);
     const tgtBounds = Geometry.getNodeBoundsAbsolute(tgt, nodeById);
@@ -746,50 +782,23 @@ function createConnections(
     let srcEnd: AvoidConnEnd;
     let tgtEnd: AvoidConnEnd;
 
-    if (splitNearHandle) {
-      // Pin-based: edges spread out along the node border near handles
-      // When autoBestSide is on, ignore explicit sourceHandle/targetHandle on edges
-      // and let the router pick the optimal side. Only use explicit handles when
-      // autoBestSide is off (pin-based routing with fixed handle positions).
-      const srcHandle = autoBestSide ? null : (edge.sourceHandle ?? findDefaultHandle(src, "source"));
-      if (srcShapeRef && srcHandle) {
-        const pinId = pinRegistry.getOrCreate(edge.source, srcHandle);
-        srcEnd = AvoidConnEnd.fromShapePin(srcShapeRef as any, pinId);
-      } else if (srcShapeRef) {
-        srcEnd = AvoidConnEnd.fromShapePin(srcShapeRef as any, pinRegistry.getOrCreate(edge.source, `__auto_best`));
-      } else {
-        const side = autoBestSide ? Geometry.getBestSides(srcBounds, tgtBounds).sourcePos : Geometry.getHandlePosition(src, "source");
-        srcEnd = (() => { const pt = Geometry.getHandlePoint(srcBounds, side); return AvoidConnEnd.fromPoint(new AvoidPoint(pt.x, pt.y)); })();
-      }
-
-      const tgtHandle = autoBestSide ? null : (edge.targetHandle ?? findDefaultHandle(tgt, "target"));
-      if (tgtShapeRef && tgtHandle) {
-        const pinId = pinRegistry.getOrCreate(edge.target, tgtHandle);
-        tgtEnd = AvoidConnEnd.fromShapePin(tgtShapeRef as any, pinId);
-      } else if (tgtShapeRef) {
-        tgtEnd = AvoidConnEnd.fromShapePin(tgtShapeRef as any, pinRegistry.getOrCreate(edge.target, `__auto_best`));
-      } else {
-        const side = autoBestSide ? Geometry.getBestSides(srcBounds, tgtBounds).targetPos : Geometry.getHandlePosition(tgt, "target");
-        tgtEnd = (() => { const pt = Geometry.getHandlePoint(tgtBounds, side); return AvoidConnEnd.fromPoint(new AvoidPoint(pt.x, pt.y)); })();
-      }
-    } else {
-      // Point-based with stubs: all edges from the same side converge to center of side,
-      // then route from a stub point offset outward
+    {
+      // Each edge fans out laterally from its side center by handleSpacing,
+      // then exits outward via a stub of stubLength before libavoid routes the middle.
       const srcSide = autoBestSide ? Geometry.getBestSides(srcBounds, tgtBounds).sourcePos : Geometry.getHandlePosition(src, "source");
       const tgtSide = autoBestSide ? Geometry.getBestSides(srcBounds, tgtBounds).targetPos : Geometry.getHandlePosition(tgt, "target");
 
-      // Use center of the side (ignore individual handle positions)
-      const srcHandlePt = Geometry.getHandlePoint(srcBounds, srcSide);
-      const tgtHandlePt = Geometry.getHandlePoint(tgtBounds, tgtSide);
+      const lateral = stubLateralOffsets.get(edge.id) ?? { srcOffset: 0, tgtOffset: 0 };
+      const srcHandlePt = applyLateralOffset(Geometry.getHandlePoint(srcBounds, srcSide), srcSide, lateral.srcOffset);
+      const tgtHandlePt = applyLateralOffset(Geometry.getHandlePoint(tgtBounds, tgtSide), tgtSide, lateral.tgtOffset);
 
-      // Route from stub endpoints (offset from center of side)
       const srcStubPt = offsetFromSide(srcHandlePt, srcSide, stubLength);
       const tgtStubPt = offsetFromSide(tgtHandlePt, tgtSide, stubLength);
 
       srcEnd = AvoidConnEnd.fromPoint(new AvoidPoint(srcStubPt.x, srcStubPt.y));
       tgtEnd = AvoidConnEnd.fromPoint(new AvoidPoint(tgtStubPt.x, tgtStubPt.y));
 
-      stubs.push({ edgeId: edge.id, srcHandlePt, tgtHandlePt });
+      stubs.push({ edgeId: edge.id, srcHandlePt, tgtHandlePt, srcStubPt, tgtStubPt, merged: !splitNearHandle });
     }
 
     const connRef = new AvoidConnRef(router as any, srcEnd, tgtEnd);
@@ -832,8 +841,8 @@ export class RoutingEngine {
     const router = createRouter(routerFlags);
     configureRouter(router, opts);
 
-    const { shapeRefMap, shapeRefList } = createObstacles(router, nodes, nodeById, pinRegistry, opts);
-    const { connRefs, stubs } = createConnections(router, edges, nodeById, shapeRefMap, pinRegistry, opts);
+    const { shapeRefList } = createObstacles(router, nodes, nodeById, pinRegistry, opts);
+    const { connRefs, stubs } = createConnections(router, edges, nodeById, opts);
 
     const result: Record<string, AvoidRoute> = {};
     try { router.processTransaction(); } catch (e) { console.error("[edge-routing] processTransaction failed:", e); RoutingEngine.cleanup(router, connRefs, shapeRefList); return result; }
@@ -848,21 +857,13 @@ export class RoutingEngine {
       if (stub) {
         points.unshift(stub.srcHandlePt);
         points.push(stub.tgtHandlePt);
-      }
-    }
-
-    // Adjust spacing at shared handles (fan-out effect).
-    // Only for splitNearHandle=false (convergence mode): edges all start from the same center
-    // point, libavoid nudges them apart by idealNudgingDistance, and HandleSpacing.adjust scales
-    // that spread by handleNudging/idealNudging → final fan-out = handleNudging (clean decoupling).
-    // For splitNearHandle=true (pin-based), pins already fix the fan-out; scaling would incorrectly
-    // compress or expand existing pin spread, causing edgeToEdgeSpacing to reduce visible spacing.
-    const splitNearHandle = opts.shouldSplitEdgesNearHandle ?? true;
-    if (!splitNearHandle) {
-      const idealNudging = opts.idealNudgingDistance ?? 10;
-      const handleNudging = opts.handleNudgingDistance ?? idealNudging;
-      if (handleNudging !== idealNudging && edgePoints.size > 0) {
-        HandleSpacing.adjust(edges, edgePoints, handleNudging, idealNudging);
+        // In merged mode (splitNearHandle=false), force the adjacent stub waypoints
+        // back to the exact stub endpoints so libavoid's nudging doesn't spread the
+        // entry/exit segments — all edges share one visible trunk line to the stub point.
+        if (stub.merged && points.length >= 3) {
+          points[1] = { ...stub.srcStubPt };
+          points[points.length - 2] = { ...stub.tgtStubPt };
+        }
       }
     }
 
@@ -1000,7 +1001,7 @@ export class PersistentRouter {
     const result = createObstacles(this.router, this.prevNodes, this.nodeById, this.pinRegistry, opts);
     this.shapeRefMap = result.shapeRefMap;
     this.shapeRefList = result.shapeRefList;
-    const conn = createConnections(this.router, this.prevEdges, this.nodeById, this.shapeRefMap, this.pinRegistry, opts);
+    const conn = createConnections(this.router, this.prevEdges, this.nodeById, opts);
     this.connRefList = conn.connRefs;
     this.stubList = conn.stubs;
 
@@ -1012,8 +1013,6 @@ export class PersistentRouter {
 
   private readRoutes(): Record<string, AvoidRoute> {
     const opts = this.prevOptions;
-    const idealNudging = opts.idealNudgingDistance ?? 10;
-    const handleNudging = opts.handleNudgingDistance ?? idealNudging;
     const gridSize = opts.diagramGridSize ?? 0;
     const result: Record<string, AvoidRoute> = {};
 
@@ -1027,13 +1026,14 @@ export class PersistentRouter {
       if (stub) {
         points.unshift(stub.srcHandlePt);
         points.push(stub.tgtHandlePt);
+        // In merged mode (splitNearHandle=false), force the adjacent stub waypoints
+        // back to the exact stub endpoints so libavoid's nudging doesn't spread the
+        // entry/exit segments — all edges share one visible trunk line to the stub point.
+        if (stub.merged && points.length >= 3) {
+          points[1] = { ...stub.srcStubPt };
+          points[points.length - 2] = { ...stub.tgtStubPt };
+        }
       }
-    }
-
-    // Adjust spacing at shared handles (fan-out effect) — only for splitNearHandle=false (convergence mode)
-    const splitNearHandle = opts.shouldSplitEdgesNearHandle ?? true;
-    if (!splitNearHandle && handleNudging !== idealNudging && edgePoints.size > 0) {
-      HandleSpacing.adjust(this.prevEdges, edgePoints, handleNudging, idealNudging);
     }
 
     const connType = opts.connectorType ?? "orthogonal";

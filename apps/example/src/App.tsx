@@ -279,7 +279,7 @@ function FlowCanvas() {
   // Leva routing settings
   const {
     connectorType, edgeToEdgeSpacing, edgeToNodeSpacing, handleSpacing,
-    edgeRounding, diagramGridSize, shouldSplitEdgesNearHandle, stubSize, segmentPenalty, anglePenalty, reverseDirectionPenalty,
+    edgeRounding, diagramGridSize, stubSize, shouldSplitEdgesNearHandle, segmentPenalty, anglePenalty, reverseDirectionPenalty,
     crossingPenalty, hateCrossings, pinInsideOffset,
     nudgeOrthogonalSegmentsConnectedToShapes, nudgeSharedPathsWithCommonEndPoint,
     performUnifyingNudgingPreprocessingStep, nudgeOrthogonalTouchingColinearSegments,
@@ -287,17 +287,17 @@ function FlowCanvas() {
   } = useControls("Routing", {
     connectorType: { value: "orthogonal" as ConnectorType, options: ["orthogonal", "bezier", "polyline"] as ConnectorType[], label: "Edge Style" },
     edgeRounding: { value: 0, min: 0, max: 48, step: 1, label: "Rounding" },
-    edgeToEdgeSpacing: { value: 12, min: 0, max: 50, step: 1, label: "Edge↔Edge" },
+    edgeToEdgeSpacing: { value: 6, min: 0, max: 50, step: 1, label: "Edge↔Edge" },
     edgeToNodeSpacing: { value: 8, min: 0, max: 48, step: 1, label: "Edge↔Node" },
     diagramGridSize: { value: 0, min: 0, max: 48, step: 1, label: "Grid Size" },
-    shouldSplitEdgesNearHandle: { value: true, label: "Split Edges Near Handle" },
-    stubSize: { value: 20, min: 0, max: 60, step: 1, label: "Stub Size" },
+    stubSize: { value: 12, min: 0, max: 60, step: 1, label: "Stub Size" },
+    shouldSplitEdgesNearHandle: { value: true, label: "Split Near Handle" },
     autoBestSideConnection: { value: false, label: "Auto Best Side" },
     hateCrossings: { value: false, label: "Avoid Crossings" },
     hideHandles: { value: true, label: "Hide Handles" },
     realTimeRouting: { value: false, label: "Route While Dragging" },
     "Spacing": folder({
-      handleSpacing: { value: 4, min: 1, max: 60, step: 1, label: "Handle" },
+      handleSpacing: { value: 6, min: 1, max: 60, step: 1, label: "Handle" },
       pinInsideOffset: { value: 0, min: 0, max: 20, step: 1, label: "Pin Offset" },
     }, { collapsed: true }),
     "Penalties": folder({
@@ -346,7 +346,7 @@ function FlowCanvas() {
   const enrichNode = useMemo(() => createEnrichNode(getInternalNode), [getInternalNode]);
 
   const { updateRoutingOnNodesChange, resetRouting } = useEdgeRouting(nodes, edges, {
-    connectorType, edgeToEdgeSpacing, edgeToNodeSpacing, handleSpacing, edgeRounding, diagramGridSize, shouldSplitEdgesNearHandle, stubSize,
+    connectorType, edgeToEdgeSpacing, edgeToNodeSpacing, handleSpacing, edgeRounding, diagramGridSize, stubSize, shouldSplitEdgesNearHandle,
     segmentPenalty, anglePenalty, reverseDirectionPenalty, crossingPenalty,
     hateCrossings, pinInsideOffset, autoBestSideConnection,
     nudgeOrthogonalSegmentsConnectedToShapes, nudgeSharedPathsWithCommonEndPoint,

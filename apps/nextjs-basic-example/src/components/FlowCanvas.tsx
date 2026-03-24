@@ -8,7 +8,6 @@
  *   so the router knows the exact pin locations on each node.
  * - autoBestSideConnection is off — edges use the explicit sourceHandle /
  *   targetHandle ids defined in initialEdges.
- * - shouldSplitEdgesNearHandle fans out parallel edges at shared handles.
  */
 
 import { useState, useCallback } from "react";
@@ -61,7 +60,6 @@ function Flow() {
     edgeToNodeSpacing: 8,       // min gap between an edge and a node boundary
     handleSpacing: 4,           // spread between edges sharing the same handle
     segmentPenalty: 10,         // cost per extra segment (keeps paths short)
-    shouldSplitEdgesNearHandle: true,  // fan edges out at handles instead of converging to a single point
     autoBestSideConnection: false,     // honour explicit sourceHandle/targetHandle ids; don't auto-pick sides
     // enrichNode is called for every node before routing — it reads the DOM-measured
     // handle bounds via getInternalNode and attaches _handlePins so the router can
