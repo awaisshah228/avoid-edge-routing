@@ -2645,7 +2645,7 @@ react-refresh@^0.17.0:
     reactflow-edge-routing "*"
 
 reactflow-edge-routing@*, "reactflow-edge-routing@file:/Users/awaisshah228/Documents/avoid-edge-routing/packages/reactflow-edge-routing":
-  version "0.1.3"
+  version "0.1.6"
   resolved "file:packages/reactflow-edge-routing"
   dependencies:
     obstacle-router "*"

@@ -287,8 +287,8 @@ function segmentIntersectsRect(
   return tMin <= tMax;
 }
 
-/** Returns true if the direct line from srcPt to tgtPt is blocked by any node except the source/target nodes.
- *  Also returns true if the path goes back through the source or target node's own body. */
+/** Returns true if the direct line from srcPt to tgtPt is blocked by any node,
+ *  including the source/target nodes themselves (e.g. edge going backward through its own node). */
 function isEdgeDirectPathBlocked(
   srcPt: { x: number; y: number },
   tgtPt: { x: number; y: number },
@@ -298,26 +298,25 @@ function isEdgeDirectPathBlocked(
   nodeById: Map<string, FlowNode>,
   buffer: number
 ): boolean {
-  const pointInRect = (p: { x: number; y: number }, b: { x: number; y: number; w: number; h: number }) =>
-    p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h;
-
+  const dx = tgtPt.x - srcPt.x, dy = tgtPt.y - srcPt.y;
+  const len = Math.sqrt(dx * dx + dy * dy);
   for (const node of nodes) {
     const bounds = Geometry.getNodeBoundsAbsolute(node, nodeById);
     if (node.id === srcNodeId || node.id === tgtNodeId) {
-      // Check if the path goes back through the node's own body by probing
-      // a small step inward from the handle point along the segment direction.
-      const endPt = node.id === srcNodeId ? srcPt : tgtPt;
-      const otherPt = node.id === srcNodeId ? tgtPt : srcPt;
-      const dx = otherPt.x - endPt.x, dy = otherPt.y - endPt.y;
-      const len = Math.sqrt(dx * dx + dy * dy);
-      if (len > 4) {
-        const step = 2 / len;
-        const probe = { x: endPt.x + dx * step, y: endPt.y + dy * step };
-        if (pointInRect(probe, bounds)) return true;
-      }
-      continue;
+      // The handle point sits on the node border, so a plain intersection check would
+      // always trigger. Nudge 1 px along the segment away from the handle and check
+      // from there — avoids the border false-positive while still catching lines that
+      // go backward through the node body.
+      if (len < 1e-6) continue;
+      const isSrc = node.id === srcNodeId;
+      const nudged = isSrc
+        ? { x: srcPt.x + dx / len, y: srcPt.y + dy / len }
+        : { x: tgtPt.x - dx / len, y: tgtPt.y - dy / len };
+      const otherEnd = isSrc ? tgtPt : srcPt;
+      if (segmentIntersectsRect(nudged, otherEnd, bounds, buffer)) return true;
+    } else {
+      if (segmentIntersectsRect(srcPt, tgtPt, bounds, buffer)) return true;
     }
-    if (segmentIntersectsRect(srcPt, tgtPt, bounds, buffer)) return true;
   }
   return false;
 }
