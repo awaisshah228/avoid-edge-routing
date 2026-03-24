@@ -158,6 +158,7 @@ function FlowCanvas() {
     performUnifyingNudgingPreprocessingStep,
     nudgeOrthogonalTouchingColinearSegments,
     debounceMs,
+    realTimeRouting,
   } = useControls({
     // ---- Important settings (top level) ----
     connectorType: {
@@ -169,6 +170,7 @@ function FlowCanvas() {
     edgeToNodeSpacing: { value: 20, min: 1, max: 60, step: 1, label: "Edge↔Node" },
     edgeRounding: { value: 8, min: 0, max: 30, step: 1, label: "Rounding" },
     hateCrossings: { value: false, label: "Avoid Crossings" },
+    realTimeRouting: { value: false, label: "Route While Dragging" },
 
     // ---- Advanced settings (folders) ----
     "Spacing": folder({
@@ -216,6 +218,7 @@ function FlowCanvas() {
     performUnifyingNudgingPreprocessingStep,
     nudgeOrthogonalTouchingColinearSegments,
     debounceMs,
+    realTimeRouting,
     enrichNode,
   });
 

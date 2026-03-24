@@ -1,19 +1,11 @@
 import { useMemo } from "react";
-import { getStraightPath, getSmoothStepPath, Position as RFPosition } from "@xyflow/react";
+import { getStraightPath, getSmoothStepPath, getBezierPath, Position as RFPosition } from "@xyflow/react";
 import { useEdgeRoutingStore } from "./edge-routing-store";
 import { EDGE_BORDER_RADIUS } from "./constants";
+import type { ConnectorType } from "./routing-core";
 
 export type Position = "left" | "right" | "top" | "bottom";
 
-/**
- * Max px the routed path endpoints can drift from React Flow's handle
- * positions before we discard the stale route and use a fallback path.
- *
- * libavoid routes from pin positions on the node boundary, while React Flow
- * reports handle centers (which can be offset by handle size + padding).
- * A generous threshold avoids false "stale" detections that cause fallback
- * paths to be drawn (which don't respect obstacles → overlapping edges).
- */
 const STALE_THRESHOLD_PX = 50;
 
 function isRouteStale(
@@ -46,11 +38,17 @@ export interface UseRoutedEdgePathParams {
   targetPosition?: Position;
   borderRadius?: number;
   offset?: number;
+  /** Connector type — determines fallback path style. Default: "orthogonal" */
+  connectorType?: ConnectorType;
 }
 
 /**
  * Returns [path, labelX, labelY, wasRouted] for a routed edge.
- * Reads from the routing store (set by the worker); falls back to smooth-step / straight.
+ *
+ * - If a fresh routed path is available → use it.
+ * - Otherwise → show a fallback preview matching the connector type:
+ *   - "bezier" → React Flow's bezier path
+ *   - "orthogonal" / "polyline" → React Flow's smooth-step path
  */
 export function useRoutedEdgePath(
   params: UseRoutedEdgePathParams
@@ -64,24 +62,41 @@ export function useRoutedEdgePath(
     sourcePosition,
     targetPosition,
     offset,
+    connectorType,
   } = params;
 
-  const loaded = useEdgeRoutingStore((s) => s.loaded);
   const route = useEdgeRoutingStore((s) => s.routes[id]);
 
   return useMemo(() => {
-    if (loaded && route && !isRouteStale(route, sourceX, sourceY, targetX, targetY)) {
+    if (route && !isRouteStale(route, sourceX, sourceY, targetX, targetY)) {
       return [route.path, route.labelX, route.labelY, true];
     }
 
     if (sourcePosition && targetPosition) {
+      const srcPos = RF_POS[sourcePosition];
+      const tgtPos = RF_POS[targetPosition];
+
+      // Bezier fallback for bezier connector type
+      if (connectorType === "bezier") {
+        const [bezierPath, bLabelX, bLabelY] = getBezierPath({
+          sourceX,
+          sourceY,
+          targetX,
+          targetY,
+          sourcePosition: srcPos,
+          targetPosition: tgtPos,
+        });
+        return [bezierPath, bLabelX, bLabelY, false];
+      }
+
+      // Smooth-step fallback for orthogonal / polyline
       const [smoothPath, sLabelX, sLabelY] = getSmoothStepPath({
         sourceX,
         sourceY,
         targetX,
         targetY,
-        sourcePosition: RF_POS[sourcePosition],
-        targetPosition: RF_POS[targetPosition],
+        sourcePosition: srcPos,
+        targetPosition: tgtPos,
         borderRadius: params.borderRadius ?? EDGE_BORDER_RADIUS,
         offset: offset ?? 20,
       });
@@ -95,5 +110,5 @@ export function useRoutedEdgePath(
       targetY,
     });
     return [straightPath, labelX, labelY, false];
-  }, [loaded, route, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, offset, params.borderRadius]);
+  }, [route, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, offset, connectorType, params.borderRadius]);
 }

@@ -67,6 +67,8 @@ export interface UseEdgeRoutingOptions {
   autoBestSideConnection?: boolean;
   debounceMs?: number;
 
+  /** If true, re-route in real time while dragging instead of on drag stop. Default: false */
+  realTimeRouting?: boolean;
   /** Enrich a node with _handlePins and _extraHeight before sending to worker */
   enrichNode?: (node: Node) => Node;
 }
@@ -136,15 +138,21 @@ export function useEdgeRouting(
   const opts = toRouterOptions(options);
   const optsRef = useRef<AvoidRouterOptions>(opts);
   const enrichNodeRef = useRef(options?.enrichNode);
+  const realTimeRoutingRef = useRef(options?.realTimeRouting ?? false);
 
   nodesRef.current = nodes;
   edgesRef.current = edges;
   optsRef.current = opts;
   enrichNodeRef.current = options?.enrichNode;
+  realTimeRoutingRef.current = options?.realTimeRouting ?? false;
 
   const setRoutes = useEdgeRoutingStore((s) => s.setRoutes);
-  const invalidateRoutesForNodes = useEdgeRoutingStore((s) => s.invalidateRoutesForNodes);
+  const setConnectorType = useEdgeRoutingStore((s) => s.setConnectorType);
   const setActions = useEdgeRoutingActionsStore((s) => s.setActions);
+
+  // Keep store in sync with current connector type
+  const connType = opts.connectorType ?? "orthogonal";
+  if (connType) setConnectorType(connType);
 
   const { post, workerLoaded } = useRoutingWorker({ create: true });
 
@@ -219,16 +227,7 @@ export function useEdgeRouting(
 
       if (!hasPosition && !hasDimensions && !hasAddOrRemove) return;
 
-      // While dragging: immediately invalidate routes for affected edges
-      // so useRoutedEdgePath falls back to React Flow's smooth-step path.
-      // This gives instant visual feedback without waiting for the worker.
-      if (isDragging && draggingNodeIds.length > 0) {
-        const edges = edgesRef.current;
-        invalidateRoutesForNodes(
-          draggingNodeIds,
-          edges.map(e => ({ id: e.id, source: (e as any).source, target: (e as any).target }))
-        );
-      }
+      const realTime = realTimeRoutingRef.current;
 
       const needsFullReset = hasAddOrRemove || (hasDimensions && !nodesMeasuredRef.current);
 
@@ -244,8 +243,8 @@ export function useEdgeRouting(
 
       if (!didResetRef.current) return;
 
-      // Only re-route when drag ends (not while dragging)
-      if (isDragging) return;
+      // Without real-time: skip re-routing while dragging, wait for drag end
+      if (isDragging && !realTime) return;
 
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => {
@@ -259,7 +258,7 @@ export function useEdgeRouting(
         });
       }, DEBOUNCE_ROUTING_MS);
     },
-    [workerLoaded, sendReset, sendIncrementalChanges, invalidateRoutesForNodes]
+    [workerLoaded, sendReset, sendIncrementalChanges]
   );
 
   useEffect(() => {
