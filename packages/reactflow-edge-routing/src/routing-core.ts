@@ -851,12 +851,17 @@ export class RoutingEngine {
       }
     }
 
-    // Adjust spacing at shared handles (fan-out effect) — skip when splitNearHandle is off
+    // Adjust spacing at shared handles (fan-out effect).
+    // Only for splitNearHandle=false (convergence mode): edges all start from the same center
+    // point, libavoid nudges them apart by idealNudgingDistance, and HandleSpacing.adjust scales
+    // that spread by handleNudging/idealNudging → final fan-out = handleNudging (clean decoupling).
+    // For splitNearHandle=true (pin-based), pins already fix the fan-out; scaling would incorrectly
+    // compress or expand existing pin spread, causing edgeToEdgeSpacing to reduce visible spacing.
     const splitNearHandle = opts.shouldSplitEdgesNearHandle ?? true;
-    if (splitNearHandle) {
+    if (!splitNearHandle) {
       const idealNudging = opts.idealNudgingDistance ?? 10;
       const handleNudging = opts.handleNudgingDistance ?? idealNudging;
-      if (handleNudging > idealNudging && edgePoints.size > 0) {
+      if (handleNudging !== idealNudging && edgePoints.size > 0) {
         HandleSpacing.adjust(edges, edgePoints, handleNudging, idealNudging);
       }
     }
@@ -1025,9 +1030,9 @@ export class PersistentRouter {
       }
     }
 
-    // Adjust spacing at shared handles (fan-out effect) — skip when splitNearHandle is off
+    // Adjust spacing at shared handles (fan-out effect) — only for splitNearHandle=false (convergence mode)
     const splitNearHandle = opts.shouldSplitEdgesNearHandle ?? true;
-    if (splitNearHandle && handleNudging > idealNudging && edgePoints.size > 0) {
+    if (!splitNearHandle && handleNudging !== idealNudging && edgePoints.size > 0) {
       HandleSpacing.adjust(this.prevEdges, edgePoints, handleNudging, idealNudging);
     }
 
