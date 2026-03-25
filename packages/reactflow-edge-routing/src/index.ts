@@ -34,7 +34,7 @@ export { useEdgeRouting } from "./use-edge-routing";
 export type { UseEdgeRoutingOptions, UseEdgeRoutingResult } from "./use-edge-routing";
 
 export { useRoutedEdgePath } from "./use-routed-edge-path";
-export type { UseRoutedEdgePathParams } from "./use-routed-edge-path";
+export type { UseRoutedEdgePathParams, RoutePinPoints } from "./use-routed-edge-path";
 
 // Collision resolution
 export { resolveCollisions } from "./resolve-collisions";
