@@ -200,7 +200,7 @@ function getConnType(connectorType: ConnectorType | undefined): number {
 /** Get the Router flags for the connector type. */
 function getRouterFlags(connectorType: ConnectorType | undefined): number {
   switch (connectorType) {
-    case "polyline": return PolyLineRouting | OrthogonalRouting;
+    case "polyline": return PolyLineRouting;
     default: return OrthogonalRouting;
   }
 }
@@ -737,13 +737,16 @@ function configureRouter(router: AvoidRouter, options: AvoidRouterOptions): void
   }
 
   // --- Routing options ---
-  router.setRoutingOption(nudgeOrthogonalSegmentsConnectedToShapesOpt, options.nudgeOrthogonalSegmentsConnectedToShapes ?? true);
-  router.setRoutingOption(nudgeSharedPathsWithCommonEndPointOpt, options.nudgeSharedPathsWithCommonEndPoint ?? true);
-  router.setRoutingOption(performUnifyingNudgingPreprocessingStepOpt, options.performUnifyingNudgingPreprocessingStep ?? true);
-  router.setRoutingOption(nudgeOrthogonalTouchingColinearSegmentsOpt, options.nudgeOrthogonalTouchingColinearSegments ?? false);
-  router.setRoutingOption(improveHyperedgeRoutesMovingJunctionsOpt, options.improveHyperedgeRoutesMovingJunctions ?? true);
-  router.setRoutingOption(penaliseOrthogonalSharedPathsAtConnEndsOpt, options.penaliseOrthogonalSharedPathsAtConnEnds ?? false);
-  router.setRoutingOption(improveHyperedgeRoutesMovingAddingAndDeletingJunctionsOpt, options.improveHyperedgeRoutesMovingAddingAndDeletingJunctions ?? false);
+  // Orthogonal nudging options only apply to orthogonal/bezier routing.
+  // Enabling them for polyline connectors corrupts the routed paths.
+  const isPolyline = options.connectorType === "polyline";
+  router.setRoutingOption(nudgeOrthogonalSegmentsConnectedToShapesOpt, isPolyline ? false : (options.nudgeOrthogonalSegmentsConnectedToShapes ?? true));
+  router.setRoutingOption(nudgeSharedPathsWithCommonEndPointOpt, isPolyline ? false : (options.nudgeSharedPathsWithCommonEndPoint ?? true));
+  router.setRoutingOption(performUnifyingNudgingPreprocessingStepOpt, isPolyline ? false : (options.performUnifyingNudgingPreprocessingStep ?? true));
+  router.setRoutingOption(nudgeOrthogonalTouchingColinearSegmentsOpt, isPolyline ? false : (options.nudgeOrthogonalTouchingColinearSegments ?? false));
+  router.setRoutingOption(improveHyperedgeRoutesMovingJunctionsOpt, isPolyline ? false : (options.improveHyperedgeRoutesMovingJunctions ?? true));
+  router.setRoutingOption(penaliseOrthogonalSharedPathsAtConnEndsOpt, isPolyline ? false : (options.penaliseOrthogonalSharedPathsAtConnEnds ?? false));
+  router.setRoutingOption(improveHyperedgeRoutesMovingAddingAndDeletingJunctionsOpt, isPolyline ? false : (options.improveHyperedgeRoutesMovingAddingAndDeletingJunctions ?? false));
 }
 
 // ---- Routing helpers ----
