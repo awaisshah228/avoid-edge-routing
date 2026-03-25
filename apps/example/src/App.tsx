@@ -285,7 +285,7 @@ function FlowCanvas() {
     performUnifyingNudgingPreprocessingStep, nudgeOrthogonalTouchingColinearSegments,
     debounceMs, realTimeRouting, autoBestSideConnection, hideHandles, routeOnlyWhenBlocked,
   } = useControls("Routing", {
-    connectorType: { value: "orthogonal" as ConnectorType, options: ["orthogonal", "bezier", "polyline"] as ConnectorType[], label: "Edge Style" },
+    connectorType: { value: "orthogonal" as ConnectorType, options: ["orthogonal", "bezier"] as ConnectorType[], label: "Edge Style" },
     edgeRounding: { value: 0, min: 0, max: 48, step: 1, label: "Rounding" },
     edgeToEdgeSpacing: { value: 6, min: 0, max: 50, step: 1, label: "Edge↔Edge" },
     edgeToNodeSpacing: { value: 8, min: 0, max: 48, step: 1, label: "Edge↔Node" },
