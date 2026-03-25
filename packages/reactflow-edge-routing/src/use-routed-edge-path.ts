@@ -57,15 +57,20 @@ function getFallback(
 }
 
 /**
- * Returns [path, labelX, labelY, wasRouted] for a routed edge.
+ * Returns [path, labelX, labelY, wasRouted, controlPoints] for a routed edge.
  *
  * - While a connected node is being dragged → dashed fallback
  * - If a routed path exists for this edge → solid routed path
  * - No route yet (worker hasn't responded) → dashed fallback
+ *
+ * `controlPoints` are the intermediate waypoints of the routed path (excluding
+ * the source and target anchor points). Use them to build an editable edge on
+ * top of auto-routing — e.g. render draggable handles at each waypoint.
+ * When no route is available (fallback), `controlPoints` is an empty array.
  */
 export function useRoutedEdgePath(
   params: UseRoutedEdgePathParams
-): [path: string, labelX: number, labelY: number, wasRouted: boolean] {
+): [path: string, labelX: number, labelY: number, wasRouted: boolean, controlPoints: { x: number; y: number }[]] {
   const {
     id, sourceX, sourceY, targetX, targetY,
     sourcePosition, targetPosition,
@@ -84,16 +89,21 @@ export function useRoutedEdgePath(
 
     if (isDragging) {
       const [path, lx, ly] = getFallback(sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, connectorType, params.borderRadius, offset);
-      return [path, lx, ly, false];
+      return [path, lx, ly, false, []];
     }
 
     // If we have a routed path, use it (no stale check — trust the router)
     if (route?.path) {
-      return [route.path, route.labelX, route.labelY, true];
+      // Strip the first (source anchor) and last (target anchor) points — the
+      // middle points are the editable control points for the connector.
+      const controlPoints = route.points && route.points.length > 2
+        ? route.points.slice(1, -1)
+        : [];
+      return [route.path, route.labelX, route.labelY, true, controlPoints];
     }
 
     // No route yet — show fallback
     const [path, lx, ly] = getFallback(sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, connectorType, params.borderRadius, offset);
-    return [path, lx, ly, false];
+    return [path, lx, ly, false, []];
   }, [route, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, offset, connectorType, params.borderRadius, source, target, draggingNodeIds]);
 }

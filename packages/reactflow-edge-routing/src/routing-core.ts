@@ -60,6 +60,8 @@ export type AvoidRoute = {
   sourceY: number;
   targetX: number;
   targetY: number;
+  /** Raw routed waypoints (including handle stubs). Use slice(1,-1) for editable edge control points. */
+  points?: { x: number; y: number }[];
 };
 
 export type ConnectorType = "orthogonal" | "polyline" | "bezier";
@@ -522,53 +524,62 @@ export class PathBuilder {
   }
 
   /**
-   * Convert routed waypoints to a smooth bezier spline.
+   * Convert routed waypoints to a smooth cubic Bezier spline using
+   * Catmull-Rom → Bezier conversion with adaptive tension.
    *
-   * Takes the orthogonal waypoints from libavoid, keeps only corners
-   * (where direction changes), then draws a smooth cubic bezier spline
-   * through them. The result is a flowing curve — not orthogonal at all —
-   * that still follows the obstacle-avoiding route.
+   * Steps:
+   * 1. Deduplicate and remove collinear intermediate points (keep corners only).
+   * 2. For each segment, compute control points from neighboring points.
+   * 3. Clamp control-point reach to prevent overshooting / edge crossings.
+   * 4. Adapt tension based on segment length — short segments get less curvature.
    */
   static routedBezierPath(
     points: { x: number; y: number }[],
-    options: { gridSize?: number } = {}
+    options: { gridSize?: number; baseTension?: number } = {}
   ): string {
     if (points.length < 2) return "";
     const gridSize = options.gridSize ?? 0;
+    const baseTension = options.baseTension ?? 0.2;
     const snap = (p: { x: number; y: number }) =>
       gridSize > 0 ? Geometry.snapToGrid(p.x, p.y, gridSize) : p;
 
     const raw = points.map(snap);
 
-    // Deduplicate
+    // Deduplicate near-identical consecutive points
     const deduped: { x: number; y: number }[] = [raw[0]];
     for (let i = 1; i < raw.length; i++) {
       const prev = deduped[deduped.length - 1];
-      if (Math.abs(raw[i].x - prev.x) > 0.5 || Math.abs(raw[i].y - prev.y) > 0.5) {
+      if (Math.abs(raw[i].x - prev.x) > 1 || Math.abs(raw[i].y - prev.y) > 1) {
         deduped.push(raw[i]);
       }
     }
 
     // Remove collinear midpoints — keep only corners + endpoints
-    const pts: { x: number; y: number }[] = [deduped[0]];
-    for (let i = 1; i < deduped.length - 1; i++) {
-      const prev = deduped[i - 1];
-      const curr = deduped[i];
-      const next = deduped[i + 1];
-      const sameX = Math.abs(prev.x - curr.x) < 1 && Math.abs(curr.x - next.x) < 1;
-      const sameY = Math.abs(prev.y - curr.y) < 1 && Math.abs(curr.y - next.y) < 1;
-      if (!sameX || !sameY) pts.push(curr);
+    let pts: { x: number; y: number }[];
+    if (deduped.length <= 2) {
+      pts = deduped;
+    } else {
+      pts = [deduped[0]];
+      for (let i = 1; i < deduped.length - 1; i++) {
+        const prev = deduped[i - 1];
+        const curr = deduped[i];
+        const next = deduped[i + 1];
+        const sameX = Math.abs(prev.x - curr.x) < 1 && Math.abs(curr.x - next.x) < 1;
+        const sameY = Math.abs(prev.y - curr.y) < 1 && Math.abs(curr.y - next.y) < 1;
+        if (!sameX || !sameY) pts.push(curr);
+      }
+      pts.push(deduped[deduped.length - 1]);
     }
-    pts.push(deduped[deduped.length - 1]);
 
-    if (pts.length < 2) return `M ${pts[0].x} ${pts[0].y}`;
+    if (pts.length === 0) return "";
+    if (pts.length === 1) return `M ${pts[0].x} ${pts[0].y}`;
 
-    // 2 points: simple bezier with offset control points
+    // 2 points: simple bezier with offset control points scaled to distance
     if (pts.length === 2) {
       const [s, t] = pts;
       const dx = t.x - s.x;
       const dy = t.y - s.y;
-      const offset = Math.max(50, Math.max(Math.abs(dx), Math.abs(dy)) * 0.5);
+      const offset = Math.max(30, Math.max(Math.abs(dx), Math.abs(dy)) * 0.4);
       if (Math.abs(dx) >= Math.abs(dy)) {
         const sign = dx >= 0 ? 1 : -1;
         return `M ${s.x} ${s.y} C ${s.x + offset * sign} ${s.y}, ${t.x - offset * sign} ${t.y}, ${t.x} ${t.y}`;
@@ -577,10 +588,6 @@ export class PathBuilder {
       return `M ${s.x} ${s.y} C ${s.x} ${s.y + offset * sign}, ${t.x} ${t.y - offset * sign}, ${t.x} ${t.y}`;
     }
 
-    // 3+ points: smooth cubic bezier spline through all corner points.
-    // For each segment i→i+1, compute tangent-based control points using
-    // neighbors (Catmull-Rom style, tension 0.3).
-    const tension = 0.3;
     const dist = (a: { x: number; y: number }, b: { x: number; y: number }) =>
       Math.hypot(b.x - a.x, b.y - a.y);
 
@@ -594,10 +601,21 @@ export class PathBuilder {
 
       const segLen = dist(p1, p2);
 
-      // Tangent at p1: direction from p0 to p2
+      // Skip curvature for very short segments
+      if (segLen < 5) {
+        d += ` L ${p2.x} ${p2.y}`;
+        continue;
+      }
+
+      // Adaptive tension: shorter segments get less curvature to avoid overshooting
+      const tension =
+        segLen < 40 ? baseTension * 0.3 :
+        segLen < 80 ? baseTension * 0.6 :
+        baseTension;
+
+      // Catmull-Rom to cubic bezier control points
       let cp1x = p1.x + (p2.x - p0.x) * tension;
       let cp1y = p1.y + (p2.y - p0.y) * tension;
-      // Tangent at p2: direction from p1 to p3
       let cp2x = p2.x - (p3.x - p1.x) * tension;
       let cp2y = p2.y - (p3.y - p1.y) * tension;
 
@@ -1023,7 +1041,7 @@ export class RoutingEngine {
       const labelP = gridSize > 0 ? Geometry.snapToGrid(midP.x, midP.y, gridSize) : midP;
       const first = points[0];
       const last = points[points.length - 1];
-      result[edgeId] = { path, labelX: labelP.x, labelY: labelP.y, sourceX: first.x, sourceY: first.y, targetX: last.x, targetY: last.y };
+      result[edgeId] = { path, labelX: labelP.x, labelY: labelP.y, sourceX: first.x, sourceY: first.y, targetX: last.x, targetY: last.y, points };
     }
 
     RoutingEngine.cleanup(router, connRefs, shapeRefList);
@@ -1229,7 +1247,7 @@ export class PersistentRouter {
       const labelP = gridSize > 0 ? Geometry.snapToGrid(midP.x, midP.y, gridSize) : midP;
       const first = points[0];
       const last = points[points.length - 1];
-      result[edgeId] = { path, labelX: labelP.x, labelY: labelP.y, sourceX: first.x, sourceY: first.y, targetX: last.x, targetY: last.y };
+      result[edgeId] = { path, labelX: labelP.x, labelY: labelP.y, sourceX: first.x, sourceY: first.y, targetX: last.x, targetY: last.y, points };
     }
     return result;
   }

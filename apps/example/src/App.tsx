@@ -25,6 +25,7 @@ import "@xyflow/react/dist/style.css";
 import { useControls, folder, button, Leva, levaStore } from "leva";
 import { useEdgeRouting, resolveCollisions, type ConnectorType } from "reactflow-edge-routing";
 import { RoutedEdge } from "./RoutedEdge";
+import { EditableRoutedEdge } from "./editable-edge";
 import { createEnrichNode } from "./enrichNode";
 import { runAutoLayout, type LayoutDirection, type LayoutAlgorithmName, type ElkMode } from "./auto-layout";
 import { expandGroups } from "./expandGroups";
@@ -38,6 +39,7 @@ import { treeNodes, treeEdges } from "./data/initialElementsTree";
 import { stressNodes, stressEdges } from "./data/initialElementsStress";
 import { elkNodes, elkEdges } from "./data/initialElementsElk";
 import { autoLayoutGroupNodes, autoLayoutGroupEdges } from "./data/initialElementsAutoLayoutGroups";
+import { editableEdgeNodes, editableEdgeEdges } from "./data/initialElementsEditableEdge";
 
 // ---------------------------------------------------------------------------
 // Custom multi-handle nodes
@@ -171,7 +173,7 @@ function handlePositionsForDirection(dir: LayoutDirection): { src: Position; tgt
 // Example definitions
 // ---------------------------------------------------------------------------
 
-type ExampleKey = "basic" | "multi-handle" | "groups" | "subflows" | "dag" | "tree" | "auto-layout" | "auto-layout-groups" | "stress";
+type ExampleKey = "basic" | "multi-handle" | "groups" | "subflows" | "dag" | "tree" | "auto-layout" | "auto-layout-groups" | "stress" | "editable-edge";
 
 interface ExampleDef {
   key: ExampleKey;
@@ -214,6 +216,7 @@ const EXAMPLES: ExampleDef[] = [
   { key: "auto-layout", label: "Auto Layout", nodes: elkNodes, edges: elkEdges, layout: { direction: "LR", elkMode: "mrtree", spacing: 30 } },
   { key: "auto-layout-groups", label: "Layout+Groups", nodes: autoLayoutGroupNodes, edges: autoLayoutGroupEdges, layout: { direction: "LR", elkMode: "layered", spacing: 30 } },
   { key: "stress", label: "Stress (200)", nodes: stressNodes, edges: stressEdges, skipLayout: true },
+  { key: "editable-edge", label: "Editable Edge", nodes: editableEdgeNodes, edges: editableEdgeEdges, skipLayout: true },
 ];
 
 // ---------------------------------------------------------------------------
@@ -228,7 +231,7 @@ const nodeTypes = {
   basicMulti: BasicMultiNode,
 };
 
-const edgeTypes = { routed: RoutedEdge };
+const edgeTypes = { routed: RoutedEdge, "editable-routed": EditableRoutedEdge };
 
 // ---------------------------------------------------------------------------
 // Flow canvas
