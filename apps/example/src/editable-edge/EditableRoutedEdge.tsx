@@ -19,7 +19,6 @@ export type EditableRoutedEdge = Edge<EditableRoutedEdgeData>;
 // Perpendicular stubs are derived from sourcePosition/targetPosition so the
 // edge always exits the node orthogonally, regardless of where waypoints are.
 // ---------------------------------------------------------------------------
-const STUB_OFFSET = 20;
 
 const HANDLE_DIR: Record<string, { x: number; y: number }> = {
   left:   { x: -1, y:  0 },
@@ -33,26 +32,29 @@ function buildManualPath(
   pts: { x: number; y: number }[],
   tx: number, ty: number, tgtPos: Position | undefined,
   connectorType: ConnectorType,
+  stubOffset: number,
 ): string {
-  // For bezier: add short perpendicular stubs so the smooth curve exits the
-  // node in the correct direction. For orthogonal/polyline, stubs create a
-  // kink whenever the control point is behind the exit direction, so skip them.
+  // Always include perpendicular stub segments so the edge exits the node in
+  // the correct handle direction. The routed portion runs between the stub
+  // exit/entry points; source→srcStub and tgtStub→target are straight stubs.
+  const srcDir = srcPos ? HANDLE_DIR[srcPos] : null;
+  const tgtDir = tgtPos ? HANDLE_DIR[tgtPos] : null;
+  const srcStub = srcDir ? { x: sx + srcDir.x * stubOffset, y: sy + srcDir.y * stubOffset } : null;
+  const tgtStub = tgtDir ? { x: tx + tgtDir.x * stubOffset, y: ty + tgtDir.y * stubOffset } : null;
+
+  const points = [
+    { x: sx, y: sy },
+    ...(srcStub ? [srcStub] : []),
+    ...pts,
+    ...(tgtStub ? [tgtStub] : []),
+    { x: tx, y: ty },
+  ];
+
   if (connectorType === "bezier") {
-    const srcDir = srcPos ? HANDLE_DIR[srcPos] : null;
-    const tgtDir = tgtPos ? HANDLE_DIR[tgtPos] : null;
-    const srcStub = srcDir ? { x: sx + srcDir.x * STUB_OFFSET, y: sy + srcDir.y * STUB_OFFSET } : null;
-    const tgtStub = tgtDir ? { x: tx + tgtDir.x * STUB_OFFSET, y: ty + tgtDir.y * STUB_OFFSET } : null;
-    const points = [
-      { x: sx, y: sy },
-      ...(srcStub ? [srcStub] : []),
-      ...pts,
-      ...(tgtStub ? [tgtStub] : []),
-      { x: tx, y: ty },
-    ];
     return PathBuilder.routedBezierPath(points);
   }
 
-  return PathBuilder.pointsToSvgPath([{ x: sx, y: sy }, ...pts, { x: tx, y: ty }]);
+  return PathBuilder.pointsToSvgPath(points);
 }
 
 // ---------------------------------------------------------------------------
@@ -66,6 +68,7 @@ function EditableRoutedEdgeComponent({
 }: EdgeProps<EditableRoutedEdge>) {
   const strokeColor = (data as EditableRoutedEdgeData | undefined)?.strokeColor ?? "#94a3b8";
   const connectorType = useEdgeRoutingStore((s) => s.connectorType);
+  const stubSize = useEdgeRoutingStore((s) => s.stubSize);
 
   const [autoPath, labelX, labelY, wasRouted, autoControlPoints, pinPoints] = useRoutedEdgePath({
     id, source, target,
@@ -92,7 +95,7 @@ function EditableRoutedEdgeComponent({
   // edge stays attached to nodes even when nodes are moved after manual points
   // were placed.
   const edgePath = isManual
-    ? buildManualPath(pinPoints.sourceX, pinPoints.sourceY, sourcePosition, manualPoints, pinPoints.targetX, pinPoints.targetY, targetPosition, connectorType)
+    ? buildManualPath(pinPoints.sourceX, pinPoints.sourceY, sourcePosition, manualPoints, pinPoints.targetX, pinPoints.targetY, targetPosition, connectorType, stubSize)
     : autoPath;
 
   // ---- Handles to show -----------------------------------------------------
@@ -102,9 +105,19 @@ function EditableRoutedEdgeComponent({
   const interiorAutoPoints = autoControlPoints.length > 2
     ? autoControlPoints.slice(1, -1)
     : [];
-  const ghostHandles: ManualPoint[] = interiorAutoPoints.length > 0
+  const midHandles: ManualPoint[] = interiorAutoPoints.length > 0
     ? interiorAutoPoints.map((p, i) => ({ ...p, id: `auto-${i}` }))
     : [mid];
+
+  // Show ghost handles at the stub exit/entry points so the user can drag
+  // from there to place manual waypoints after the stub segment.
+  const srcDir = sourcePosition ? HANDLE_DIR[sourcePosition] : null;
+  const tgtDir = targetPosition ? HANDLE_DIR[targetPosition] : null;
+  const ghostHandles: ManualPoint[] = [
+    ...(srcDir ? [{ id: "stub-src", x: sourceX + srcDir.x * stubSize, y: sourceY + srcDir.y * stubSize }] : []),
+    ...midHandles,
+    ...(tgtDir ? [{ id: "stub-tgt", x: targetX + tgtDir.x * stubSize, y: targetY + tgtDir.y * stubSize }] : []),
+  ];
 
   const shouldShowControls = useStore((s) => {
     const src = s.nodeLookup.get(source);

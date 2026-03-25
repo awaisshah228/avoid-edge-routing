@@ -159,12 +159,14 @@ export function useEdgeRouting(
 
   const setRoutes = useEdgeRoutingStore((s) => s.setRoutes);
   const setConnectorType = useEdgeRoutingStore((s) => s.setConnectorType);
+  const setStubSize = useEdgeRoutingStore((s) => s.setStubSize);
   const setDraggingNodeIds = useEdgeRoutingStore((s) => s.setDraggingNodeIds);
   const setActions = useEdgeRoutingActionsStore((s) => s.setActions);
 
-  // Keep store in sync with current connector type
+  // Keep store in sync with current connector type and stub size
   const connType = opts.connectorType ?? "orthogonal";
   if (connType) setConnectorType(connType);
+  setStubSize(opts.stubSize ?? 20);
 
   const { post, workerLoaded } = useRoutingWorker({ create: true });
 

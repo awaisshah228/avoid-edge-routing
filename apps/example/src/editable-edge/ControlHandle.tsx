@@ -33,12 +33,14 @@ export function ControlHandle({ id, x, y, color, ghost, onMove, onDelete }: Cont
     };
     const handleUp = (ev: PointerEvent) => {
       container.removeEventListener("pointermove", handleMove);
+      container.removeEventListener("pointerleave", handleUp);
+      document.removeEventListener("pointerup", handleUp);
       const p = screenToFlowPosition({ x: ev.clientX, y: ev.clientY });
       onMove(id, p.x, p.y);
     };
 
     container.addEventListener("pointermove", handleMove);
-    container.addEventListener("pointerup", handleUp, { once: true });
+    document.addEventListener("pointerup", handleUp, { once: true });
     container.addEventListener("pointerleave", handleUp, { once: true });
   }, [container, id, x, y, onMove, screenToFlowPosition]);
 
