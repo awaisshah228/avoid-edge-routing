@@ -297,7 +297,7 @@ function FlowCanvas() {
     shouldSplitEdgesNearHandle: { value: true, label: "Split Near Handle" },
     autoBestSideConnection: { value: false, label: "Auto Best Side" },
     hateCrossings: { value: false, label: "Avoid Crossings" },
-    routeOnlyWhenBlocked: { value: true, label: "Route Only When Blocked" },
+    routeOnlyWhenBlocked: { value: false, label: "Route Only When Blocked" },
     hideHandles: { value: true, label: "Hide Handles" },
     realTimeRouting: { value: false, label: "Route While Dragging" },
     "Spacing": folder({
@@ -351,9 +351,9 @@ function FlowCanvas() {
 
   useEffect(() => {
     if (connectorType === "bezier") {
-      levaStore.set({ "Routing.edgeToEdgeSpacing": 0, "Routing.edgeToNodeSpacing": 12, "Routing.shouldSplitEdgesNearHandle": false }, false);
+      levaStore.set({ "Routing.edgeToEdgeSpacing": 0, "Routing.edgeToNodeSpacing": 12, "Routing.shouldSplitEdgesNearHandle": false, "Routing.routeOnlyWhenBlocked": true }, false);
     } else {
-      levaStore.set({ "Routing.edgeToEdgeSpacing": 6, "Routing.edgeToNodeSpacing": 8, "Routing.shouldSplitEdgesNearHandle": true }, false);
+      levaStore.set({ "Routing.edgeToEdgeSpacing": 6, "Routing.edgeToNodeSpacing": 8, "Routing.shouldSplitEdgesNearHandle": true, "Routing.routeOnlyWhenBlocked": false }, false);
     }
     setTimeout(() => resetRoutingRef.current(), 50);
   }, [connectorType]);
