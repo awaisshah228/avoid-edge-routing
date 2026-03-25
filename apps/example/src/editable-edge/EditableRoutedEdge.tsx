@@ -109,15 +109,10 @@ function EditableRoutedEdgeComponent({
     ? interiorAutoPoints.map((p, i) => ({ ...p, id: `auto-${i}` }))
     : [mid];
 
-  // Show ghost handles at the stub exit/entry points so the user can drag
-  // from there to place manual waypoints after the stub segment.
-  const srcDir = sourcePosition ? HANDLE_DIR[sourcePosition] : null;
-  const tgtDir = targetPosition ? HANDLE_DIR[targetPosition] : null;
-  const ghostHandles: ManualPoint[] = [
-    ...(srcDir ? [{ id: "stub-src", x: sourceX + srcDir.x * stubSize, y: sourceY + srcDir.y * stubSize }] : []),
-    ...midHandles,
-    ...(tgtDir ? [{ id: "stub-tgt", x: targetX + tgtDir.x * stubSize, y: targetY + tgtDir.y * stubSize }] : []),
-  ];
+  // Ghost handles sit on the actual routed path points (interiorAutoPoints already
+  // includes stub exit/entry). Using raw sourceX+stubDir would be wrong when the
+  // router nudges parallel edges off-centre.
+  const ghostHandles: ManualPoint[] = midHandles;
 
   const shouldShowControls = useStore((s) => {
     const src = s.nodeLookup.get(source);
