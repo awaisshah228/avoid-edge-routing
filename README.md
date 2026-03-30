@@ -114,7 +114,10 @@ Interactive demo with Vite + React 19, Leva controls, 10 example tabs, ELK/Dagre
 ### Svelte (`apps/example-svelte`)
 Full SvelteKit demo with Svelte 5, controls panel, 10 example tabs, ELK/Dagre auto-layout, and collision resolution — mirrors the React example feature-for-feature.
 
-### Next.js (`apps/nextjs-basic-example`)
+### SvelteKit Basic (`apps/sveltekit-basic-example`)
+Minimal SvelteKit example with basic edge routing — mirrors the Next.js basic example.
+
+### Next.js Basic (`apps/nextjs-basic-example`)
 Minimal Next.js 15 example with basic edge routing.
 
 ## Project Structure
@@ -124,6 +127,7 @@ avoid-edge-routing/
   apps/
     example/                   # Interactive demo (Vite + React 19)
     example-svelte/            # Interactive demo (SvelteKit + Svelte 5)
+    sveltekit-basic-example/   # SvelteKit basic example
     nextjs-basic-example/      # Next.js basic example
   packages/
     obstacle-router/           # Core routing engine (pure TypeScript, zero deps)
