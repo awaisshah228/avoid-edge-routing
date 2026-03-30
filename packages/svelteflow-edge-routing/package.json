@@ -1,0 +1,26 @@
+{
+  "name": "svelteflow-edge-routing",
+  "version": "0.1.0",
+  "description": "Orthogonal edge routing for Svelte Flow using obstacle-router. Edges route around nodes while pins stay fixed at their anchor points.",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "svelte": "./src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "obstacle-router": "*",
+    "@xyflow/system": "^0.0.75"
+  },
+  "peerDependencies": {
+    "@xyflow/svelte": "^1.0.0",
+    "svelte": "^5.0.0"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@xyflow/svelte": "^1.0.0",
+    "svelte": "^5.0.0",
+    "typescript": "^5.7.0"
+  }
+}
