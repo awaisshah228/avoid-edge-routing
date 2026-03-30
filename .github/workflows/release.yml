@@ -18,6 +18,7 @@ on:
         options:
           - obstacle-router
           - reactflow-edge-routing
+          - svelteflow-edge-routing
           - all
 
 jobs:
@@ -53,6 +54,11 @@ jobs:
         working-directory: packages/reactflow-edge-routing
         run: npm version ${{ inputs.bump }} --no-git-tag-version
 
+      - name: Bump version (svelteflow-edge-routing)
+        if: ${{ inputs.package == 'svelteflow-edge-routing' || inputs.package == 'all' }}
+        working-directory: packages/svelteflow-edge-routing
+        run: npm version ${{ inputs.bump }} --no-git-tag-version
+
       - name: Commit version bump
         run: |
           git config user.name "github-actions[bot]"
@@ -64,6 +70,7 @@ jobs:
             VERSIONS=""
             VERSIONS="$VERSIONS obstacle-router@$(node -p "require('./packages/obstacle-router/package.json').version")"
             VERSIONS="$VERSIONS reactflow-edge-routing@$(node -p "require('./packages/reactflow-edge-routing/package.json').version")"
+            VERSIONS="$VERSIONS svelteflow-edge-routing@$(node -p "require('./packages/svelteflow-edge-routing/package.json').version")"
             git commit -m "chore: ${BUMP} version bump for all packages (${VERSIONS})"
           else
             VERSION=$(node -p "require('./packages/${PACKAGE}/package.json').version")
