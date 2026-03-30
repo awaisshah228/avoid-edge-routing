@@ -11,7 +11,6 @@ import type { Position } from "@xyflow/react";
 import { ControlHandle } from "./ControlHandle";
 import { useManualPointsStore, type ManualPoint } from "./useManualPointsStore";
 
-
 export type EditableRoutedEdgeData = { strokeColor?: string };
 export type EditableRoutedEdge = Edge<EditableRoutedEdgeData>;
 
