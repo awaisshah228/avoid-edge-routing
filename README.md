@@ -1,8 +1,8 @@
 # avoid-edge-routing
 
-> [![npm](https://img.shields.io/npm/v/obstacle-router)](https://www.npmjs.com/package/obstacle-router) [![npm](https://img.shields.io/npm/v/reactflow-edge-routing)](https://www.npmjs.com/package/reactflow-edge-routing) [![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?logo=github)](https://github.com/sponsors/awaisshah228)
+> [![npm](https://img.shields.io/npm/v/obstacle-router)](https://www.npmjs.com/package/obstacle-router) [![npm](https://img.shields.io/npm/v/reactflow-edge-routing)](https://www.npmjs.com/package/reactflow-edge-routing) [![npm](https://img.shields.io/npm/v/svelteflow-edge-routing)](https://www.npmjs.com/package/svelteflow-edge-routing) [![Sponsor](https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?logo=github)](https://github.com/sponsors/awaisshah228)
 
-A monorepo providing **obstacle-aware edge routing** for node-based diagrams. Edges automatically route around nodes using orthogonal, polyline, or bezier paths — powered by a pure TypeScript port of [libavoid](https://www.adaptagrams.org/documentation/libavoid.html) with first-class [React Flow](https://reactflow.dev/) integration.
+A monorepo providing **obstacle-aware edge routing** for node-based diagrams. Edges automatically route around nodes using orthogonal, polyline, or bezier paths — powered by a pure TypeScript port of [libavoid](https://www.adaptagrams.org/documentation/libavoid.html) with first-class [React Flow](https://reactflow.dev/) and [Svelte Flow](https://svelteflow.dev/) integration.
 
 If this project saves you time, consider supporting its development:
 
@@ -18,6 +18,7 @@ If this project saves you time, consider supporting its development:
 |---|---|---|
 | [`obstacle-router`](packages/obstacle-router) | Core routing engine — TypeScript port of libavoid, zero dependencies | [![npm](https://img.shields.io/npm/v/obstacle-router)](https://www.npmjs.com/package/obstacle-router) |
 | [`reactflow-edge-routing`](packages/reactflow-edge-routing) | React Flow integration with hooks, stores, and Web Worker support | [![npm](https://img.shields.io/npm/v/reactflow-edge-routing)](https://www.npmjs.com/package/reactflow-edge-routing) |
+| [`svelteflow-edge-routing`](packages/svelteflow-edge-routing) | Svelte Flow integration with Svelte stores, Web Worker, and routing | [![npm](https://img.shields.io/npm/v/svelteflow-edge-routing)](https://www.npmjs.com/package/svelteflow-edge-routing) |
 
 ## Features
 
@@ -50,6 +51,8 @@ yarn dev --filter=reactflow-edge-routing-example
 
 ## Usage
 
+### React Flow
+
 ```tsx
 import { useEdgeRouting, useRoutedEdgePath } from "reactflow-edge-routing";
 
@@ -76,14 +79,43 @@ function FlowCanvas() {
 }
 ```
 
-## Example App
+### Svelte Flow
 
-The `apps/example` directory contains an interactive demo with:
+```svelte
+<script>
+  import { SvelteFlow } from "@xyflow/svelte";
+  import { createEdgeRouting, computeRoutedEdgePath, edgeRoutingStore } from "svelteflow-edge-routing";
 
-- Multiple graph examples (basic, multi-handle, groups, subflows, DAG, tree, stress test)
-- Live parameter controls for all routing and layout settings
-- Auto-layout integration (ELK, Dagre)
-- Collision resolution
+  let nodes = $state.raw(initialNodes);
+  let edges = $state.raw(initialEdges);
+
+  const routing = createEdgeRouting(() => nodes, () => edges, {
+    edgeRounding: 12,
+    edgeToEdgeSpacing: 4,
+    edgeToNodeSpacing: 8,
+    autoBestSideConnection: true,
+  });
+
+  function handleNodeDragStop() {
+    routing.resetRouting();
+  }
+</script>
+
+<SvelteFlow bind:nodes bind:edges onnodedragstop={handleNodeDragStop} fitView>
+  <!-- Background, Controls, etc. -->
+</SvelteFlow>
+```
+
+## Example Apps
+
+### React (`apps/example`)
+Interactive demo with Vite + React 19, Leva controls, 10 example tabs, ELK/Dagre auto-layout, and collision resolution.
+
+### Svelte (`apps/example-svelte`)
+Full SvelteKit demo with Svelte 5, controls panel, 10 example tabs, ELK/Dagre auto-layout, and collision resolution — mirrors the React example feature-for-feature.
+
+### Next.js (`apps/nextjs-basic-example`)
+Minimal Next.js 15 example with basic edge routing.
 
 ## Project Structure
 
@@ -91,9 +123,12 @@ The `apps/example` directory contains an interactive demo with:
 avoid-edge-routing/
   apps/
     example/                   # Interactive demo (Vite + React 19)
+    example-svelte/            # Interactive demo (SvelteKit + Svelte 5)
+    nextjs-basic-example/      # Next.js basic example
   packages/
     obstacle-router/           # Core routing engine (pure TypeScript, zero deps)
     reactflow-edge-routing/    # React Flow hooks & integration
+    svelteflow-edge-routing/   # Svelte Flow stores & integration
 ```
 
 ## Sponsor
@@ -110,3 +145,4 @@ If this library is useful to you, please consider sponsoring:
 
 - `obstacle-router` — LGPL-2.1 (based on libavoid by Michael Wybrow, Monash University)
 - `reactflow-edge-routing` — MIT
+- `svelteflow-edge-routing` — MIT
