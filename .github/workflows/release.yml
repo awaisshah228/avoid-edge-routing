@@ -89,6 +89,10 @@ jobs:
             VERSION=$(node -p "require('./packages/reactflow-edge-routing/package.json').version")
             git tag "reactflow-edge-routing@${VERSION}"
           fi
+          if [ "$PACKAGE" = "svelteflow-edge-routing" ] || [ "$PACKAGE" = "all" ]; then
+            VERSION=$(node -p "require('./packages/svelteflow-edge-routing/package.json').version")
+            git tag "svelteflow-edge-routing@${VERSION}"
+          fi
           git push --tags
 
       - name: Publish obstacle-router
@@ -101,6 +105,13 @@ jobs:
       - name: Publish reactflow-edge-routing
         if: ${{ inputs.package == 'reactflow-edge-routing' || inputs.package == 'all' }}
         working-directory: packages/reactflow-edge-routing
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish svelteflow-edge-routing
+        if: ${{ inputs.package == 'svelteflow-edge-routing' || inputs.package == 'all' }}
+        working-directory: packages/svelteflow-edge-routing
         run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
