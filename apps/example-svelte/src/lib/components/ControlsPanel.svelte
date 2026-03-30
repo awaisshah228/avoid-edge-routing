@@ -1,13 +1,13 @@
 <!--
   ControlsPanel — Svelte replacement for Leva controls panel.
-  Provides sliders, checkboxes, and select dropdowns for routing & layout settings.
+  All defaults and settings match the React example exactly.
 -->
 <script lang="ts">
   import { createEventDispatcher } from "svelte";
 
   const dispatch = createEventDispatcher();
 
-  // Routing settings
+  // Routing settings — defaults match React Leva
   export let connectorType = "orthogonal";
   export let edgeRounding = 0;
   export let edgeToEdgeSpacing = 6;
@@ -20,11 +20,25 @@
   export let routeOnlyWhenBlocked = false;
   export let hideHandles = true;
   export let realTimeRouting = false;
+
+  // Spacing folder
   export let handleSpacing = 6;
+  export let pinInsideOffset = 0;
+
+  // Penalties folder
   export let segmentPenalty = 10;
   export let anglePenalty = 0;
   export let reverseDirectionPenalty = 0;
   export let crossingPenalty = 0;
+
+  // Nudging folder
+  export let nudgeOrthogonalSegmentsConnectedToShapes = true;
+  export let nudgeSharedPathsWithCommonEndPoint = true;
+  export let performUnifyingNudgingPreprocessingStep = true;
+  export let nudgeOrthogonalTouchingColinearSegments = false;
+
+  // Performance folder
+  export let debounceMs = 0;
 
   // Layout settings
   export let layoutAlgorithm = "elk";
@@ -36,7 +50,10 @@
   let collapsed = false;
   let routingOpen = true;
   let layoutOpen = true;
+  let spacingOpen = false;
   let penaltiesOpen = false;
+  let nudgingOpen = false;
+  let performanceOpen = false;
 
   function onRunLayout() {
     dispatch("runlayout");
@@ -69,7 +86,6 @@
           <label><span>Edge↔Node</span><input type="range" min={0} max={48} bind:value={edgeToNodeSpacing} /><span class="val">{edgeToNodeSpacing}</span></label>
           <label><span>Grid Size</span><input type="range" min={0} max={48} bind:value={diagramGridSize} /><span class="val">{diagramGridSize}</span></label>
           <label><span>Stub Size</span><input type="range" min={0} max={60} bind:value={stubSize} /><span class="val">{stubSize}</span></label>
-          <label><span>Handle Spacing</span><input type="range" min={1} max={60} bind:value={handleSpacing} /><span class="val">{handleSpacing}</span></label>
           <label><span>Split Near Handle</span><input type="checkbox" bind:checked={shouldSplitEdgesNearHandle} /></label>
           <label><span>Auto Best Side</span><input type="checkbox" bind:checked={autoBestSideConnection} /></label>
           <label><span>Avoid Crossings</span><input type="checkbox" bind:checked={hateCrossings} /></label>
@@ -77,6 +93,16 @@
           <label><span>Hide Handles</span><input type="checkbox" bind:checked={hideHandles} /></label>
           <label><span>Route While Drag</span><input type="checkbox" bind:checked={realTimeRouting} /></label>
 
+          <!-- Spacing folder -->
+          <button class="section-toggle" on:click={() => (spacingOpen = !spacingOpen)}>
+            {spacingOpen ? "▾" : "▸"} Spacing
+          </button>
+          {#if spacingOpen}
+            <label><span>Handle</span><input type="range" min={1} max={60} bind:value={handleSpacing} /><span class="val">{handleSpacing}</span></label>
+            <label><span>Pin Offset</span><input type="range" min={0} max={20} bind:value={pinInsideOffset} /><span class="val">{pinInsideOffset}</span></label>
+          {/if}
+
+          <!-- Penalties folder -->
           <button class="section-toggle" on:click={() => (penaltiesOpen = !penaltiesOpen)}>
             {penaltiesOpen ? "▾" : "▸"} Penalties
           </button>
@@ -85,6 +111,25 @@
             <label><span>Angle</span><input type="range" min={0} max={100} bind:value={anglePenalty} /><span class="val">{anglePenalty}</span></label>
             <label><span>Reverse</span><input type="range" min={0} max={100} bind:value={reverseDirectionPenalty} /><span class="val">{reverseDirectionPenalty}</span></label>
             <label><span>Crossing</span><input type="range" min={0} max={200} bind:value={crossingPenalty} /><span class="val">{crossingPenalty}</span></label>
+          {/if}
+
+          <!-- Nudging folder -->
+          <button class="section-toggle" on:click={() => (nudgingOpen = !nudgingOpen)}>
+            {nudgingOpen ? "▾" : "▸"} Nudging
+          </button>
+          {#if nudgingOpen}
+            <label><span>At Shapes</span><input type="checkbox" bind:checked={nudgeOrthogonalSegmentsConnectedToShapes} /></label>
+            <label><span>Shared Paths</span><input type="checkbox" bind:checked={nudgeSharedPathsWithCommonEndPoint} /></label>
+            <label><span>Unify First</span><input type="checkbox" bind:checked={performUnifyingNudgingPreprocessingStep} /></label>
+            <label><span>Colinear</span><input type="checkbox" bind:checked={nudgeOrthogonalTouchingColinearSegments} /></label>
+          {/if}
+
+          <!-- Performance folder -->
+          <button class="section-toggle" on:click={() => (performanceOpen = !performanceOpen)}>
+            {performanceOpen ? "▾" : "▸"} Performance
+          </button>
+          {#if performanceOpen}
+            <label><span>Debounce (ms)</span><input type="range" min={0} max={200} step={5} bind:value={debounceMs} /><span class="val">{debounceMs}</span></label>
           {/if}
         </div>
       {/if}
@@ -133,71 +178,18 @@
 </div>
 
 <style>
-  .panel {
-    position: absolute;
-    top: 10px;
-    right: 10px;
-    z-index: 100;
-    background: #1e293b;
-    color: #e2e8f0;
-    border-radius: 8px;
-    font-family: sans-serif;
-    font-size: 12px;
-    width: 320px;
-    max-height: calc(100vh - 60px);
-    overflow-y: auto;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-  }
+  .panel { position: absolute; top: 10px; right: 10px; z-index: 100; background: #1e293b; color: #e2e8f0; border-radius: 8px; font-family: sans-serif; font-size: 12px; width: 320px; max-height: calc(100vh - 60px); overflow-y: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
   .panel.collapsed { width: auto; }
-  .panel-toggle {
-    display: block;
-    width: 100%;
-    padding: 8px 12px;
-    background: none;
-    border: none;
-    color: #e2e8f0;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    text-align: left;
-  }
+  .panel-toggle { display: block; width: 100%; padding: 8px 12px; background: none; border: none; color: #e2e8f0; font-size: 13px; font-weight: 600; cursor: pointer; text-align: left; }
   .section { padding: 0 8px 8px; }
-  .section-toggle {
-    display: block;
-    width: 100%;
-    padding: 4px 4px;
-    background: none;
-    border: none;
-    color: #94a3b8;
-    font-size: 11px;
-    font-weight: 600;
-    cursor: pointer;
-    text-align: left;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
+  .section-toggle { display: block; width: 100%; padding: 4px 4px; background: none; border: none; color: #94a3b8; font-size: 11px; font-weight: 600; cursor: pointer; text-align: left; text-transform: uppercase; letter-spacing: 0.5px; }
   .controls { display: flex; flex-direction: column; gap: 4px; padding: 4px 0; }
-  label {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 2px 4px;
-  }
+  label { display: flex; align-items: center; gap: 8px; padding: 2px 4px; }
   label span:first-child { flex: 0 0 110px; color: #94a3b8; font-size: 11px; }
   label input[type="range"] { flex: 1; accent-color: #3b82f6; }
   label input[type="checkbox"] { width: 16px; height: 16px; accent-color: #3b82f6; }
   label select { flex: 1; background: #334155; color: #e2e8f0; border: 1px solid #475569; border-radius: 4px; padding: 2px 4px; font-size: 11px; }
   .val { color: #64748b; font-size: 10px; min-width: 24px; text-align: right; }
-  .run-btn {
-    margin-top: 4px;
-    padding: 6px 12px;
-    background: #3b82f6;
-    color: white;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 12px;
-    font-weight: 600;
-  }
+  .run-btn { margin-top: 4px; padding: 6px 12px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600; }
   .run-btn:hover { background: #2563eb; }
 </style>

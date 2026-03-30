@@ -1,5 +1,6 @@
 <!--
   FlowCanvasInner — main Svelte Flow canvas with tabs, controls panel, and full routing.
+  All defaults and routing logic match the React example exactly.
   Must be rendered inside <SvelteFlowProvider>.
 -->
 <script lang="ts">
@@ -21,6 +22,7 @@
     createEdgeRouting,
     setDraggingNodeIds,
     setConnectorType,
+    resolveCollisions,
     type EdgeRoutingInstance,
     type ConnectorType,
   } from "svelteflow-edge-routing";
@@ -92,31 +94,36 @@
     basic: BasicNode, blocker: BlockerNode, basicMulti: BasicMultiNode,
     splitter: SplitterNode, merger: MergerNode, process: ProcessNode, group: GroupNode,
   } as unknown as NodeTypes;
-
   const edgeTypes = { routed: RoutedEdge } as unknown as EdgeTypes;
 
   let nodes: Node[] = $state.raw(EXAMPLES[0].nodes);
   let edges: Edge[] = $state.raw(EXAMPLES[0].edges);
   let activeExample: ExampleKey = $state("basic");
 
-  // Controls — defaults match the React example
+  // ---- Controls — ALL defaults match React Leva exactly ----
   let connectorType: ConnectorType = $state("orthogonal");
-  let edgeRounding = $state(12);
-  let edgeToEdgeSpacing = $state(4);
+  let edgeRounding = $state(0);
+  let edgeToEdgeSpacing = $state(6);
   let edgeToNodeSpacing = $state(8);
   let diagramGridSize = $state(0);
   let stubSize = $state(12);
   let shouldSplitEdgesNearHandle = $state(true);
-  let autoBestSideConnection = $state(true);
+  let autoBestSideConnection = $state(false);
   let hateCrossings = $state(false);
   let routeOnlyWhenBlocked = $state(false);
   let hideHandles = $state(true);
   let realTimeRouting = $state(false);
-  let handleSpacing = $state(4);
+  let handleSpacing = $state(6);
+  let pinInsideOffset = $state(0);
   let segmentPenalty = $state(10);
   let anglePenalty = $state(0);
   let reverseDirectionPenalty = $state(0);
   let crossingPenalty = $state(0);
+  let nudgeOrthogonalSegmentsConnectedToShapes = $state(true);
+  let nudgeSharedPathsWithCommonEndPoint = $state(true);
+  let performUnifyingNudgingPreprocessingStep = $state(true);
+  let nudgeOrthogonalTouchingColinearSegments = $state(false);
+  let debounceMs = $state(0);
   let layoutAlgorithm = $state("elk");
   let elkMode = $state("mrtree");
   let layoutDirection = $state("LR");
@@ -126,18 +133,36 @@
   const { getInternalNode, fitView } = useSvelteFlow();
   const enrichNode = createEnrichNode(getInternalNode as any);
 
-  // Mutable refs — closures always read latest values from here
+  // Mutable refs — closures always read latest values
   let _nodes = nodes;
   let _edges = edges;
 
+  // Build options object from current settings — matches React useEdgeRouting call
   function getOpts() {
     return {
-      connectorType: connectorType as ConnectorType,
-      edgeRounding, edgeToEdgeSpacing, edgeToNodeSpacing, handleSpacing,
-      diagramGridSize, stubSize, shouldSplitEdgesNearHandle,
-      segmentPenalty, anglePenalty, reverseDirectionPenalty, crossingPenalty,
-      hateCrossings, autoBestSideConnection, routeOnlyWhenBlocked,
-      realTimeRouting, enrichNode,
+      connectorType,
+      edgeToEdgeSpacing,
+      edgeToNodeSpacing,
+      handleSpacing,
+      edgeRounding,
+      diagramGridSize,
+      stubSize,
+      shouldSplitEdgesNearHandle,
+      segmentPenalty,
+      anglePenalty,
+      reverseDirectionPenalty,
+      crossingPenalty,
+      hateCrossings,
+      pinInsideOffset,
+      autoBestSideConnection,
+      routeOnlyWhenBlocked,
+      nudgeOrthogonalSegmentsConnectedToShapes,
+      nudgeSharedPathsWithCommonEndPoint,
+      performUnifyingNudgingPreprocessingStep,
+      nudgeOrthogonalTouchingColinearSegments,
+      debounceMs,
+      realTimeRouting,
+      enrichNode,
     };
   }
 
@@ -148,31 +173,54 @@
   // Sync mutable refs when SvelteFlow updates nodes/edges via bind:
   $effect(() => { _nodes = nodes; _edges = edges; });
 
-  // Recreate routing when ANY setting changes — this is what React's
-  // useEdgeRouting does on every render with new options
+  // ---- React-equivalent: re-route when ANY setting changes ----
+  // In React, useEdgeRouting re-runs on every render with new options.
+  // In Svelte, we watch a serialized settings key and recreate routing.
   let settingsKey = $derived(
     JSON.stringify({
       connectorType, edgeRounding, edgeToEdgeSpacing, edgeToNodeSpacing,
-      handleSpacing, diagramGridSize, stubSize, shouldSplitEdgesNearHandle,
-      segmentPenalty, anglePenalty, reverseDirectionPenalty, crossingPenalty,
-      hateCrossings, autoBestSideConnection, routeOnlyWhenBlocked, realTimeRouting,
+      handleSpacing, pinInsideOffset, diagramGridSize, stubSize,
+      shouldSplitEdgesNearHandle, segmentPenalty, anglePenalty,
+      reverseDirectionPenalty, crossingPenalty, hateCrossings,
+      autoBestSideConnection, routeOnlyWhenBlocked, realTimeRouting,
+      nudgeOrthogonalSegmentsConnectedToShapes, nudgeSharedPathsWithCommonEndPoint,
+      performUnifyingNudgingPreprocessingStep, nudgeOrthogonalTouchingColinearSegments,
+      debounceMs,
     })
   );
 
+  // React-equivalent: auto-adjust settings when connectorType changes
+  // (matches React useEffect at App.tsx:352-359)
+  let prevConnectorType = connectorType;
+  $effect(() => {
+    if (connectorType !== prevConnectorType) {
+      prevConnectorType = connectorType;
+      if (connectorType === "bezier") {
+        edgeToEdgeSpacing = 0;
+        edgeToNodeSpacing = 12;
+        shouldSplitEdgesNearHandle = false;
+        routeOnlyWhenBlocked = true;
+      } else {
+        edgeToEdgeSpacing = 6;
+        edgeToNodeSpacing = 8;
+        shouldSplitEdgesNearHandle = true;
+        routeOnlyWhenBlocked = false;
+      }
+    }
+  });
+
   let prevSettingsKey = "";
   $effect(() => {
-    const key = settingsKey; // read to track
+    const key = settingsKey;
     if (key === prevSettingsKey) return;
     prevSettingsKey = key;
 
-    // Update connectorType in the store so RoutedEdge reads it
-    setConnectorType(connectorType as ConnectorType);
+    // Sync connector type to store so RoutedEdge reads it
+    setConnectorType(connectorType);
 
-    // Destroy old routing and create new one with updated options
+    // Destroy old routing, create new with updated options
     routing.destroy();
     routing = createEdgeRouting(() => _nodes, () => _edges, getOpts());
-
-    // Give new worker time to load, then route
     setTimeout(() => routing.resetRouting(), 150);
   });
 
@@ -192,6 +240,9 @@
         elkMode: ex.layout.elkMode ?? "mrtree",
       });
       prepared = expandGroups(prepared);
+      if (resolveOverlaps) {
+        prepared = resolveCollisions(prepared as any, { maxIterations: 50, overlapThreshold: 0.5, margin: 20 }) as Node[];
+      }
     }
     nodes = prepared;
     edges = ex.edges;
@@ -201,7 +252,7 @@
     setTimeout(() => { routing.resetRouting(); fitView({ padding: 0.15 }); }, 300);
   }
 
-  // ---- Drag handlers (fallback during drag, re-route on stop) ----
+  // ---- Drag handlers — matches React onNodesChange + onNodeDragStop ----
   function handleNodeDragStart(event: any) {
     const node = event.detail?.node ?? event.targetNode;
     if (node) setDraggingNodeIds(new Set([node.id]));
@@ -214,8 +265,14 @@
 
   function handleNodeDragStop() {
     setDraggingNodeIds(new Set());
+    // Resolve collisions on drag stop (matches React onNodeDragStop)
+    if (resolveOverlaps) {
+      nodes = resolveCollisions(nodes as any, { maxIterations: 50, overlapThreshold: 0.5, margin: 20 }) as Node[];
+    }
     _nodes = nodes;
     _edges = edges;
+    // Wait for React Flow to internalize positions, then re-route
+    // (matches React: requestAnimationFrame(() => requestAnimationFrame(() => resetRouting())))
     requestAnimationFrame(() => requestAnimationFrame(() => routing.resetRouting()));
   }
 
@@ -228,6 +285,9 @@
       elkMode: elkMode as ElkMode,
     });
     laid = expandGroups(laid);
+    if (resolveOverlaps) {
+      laid = resolveCollisions(laid as any, { maxIterations: 50, overlapThreshold: 0.5, margin: 20 }) as Node[];
+    }
     nodes = laid;
     _nodes = laid;
     await tick();
@@ -266,8 +326,11 @@
       bind:connectorType bind:edgeRounding bind:edgeToEdgeSpacing bind:edgeToNodeSpacing
       bind:diagramGridSize bind:stubSize bind:shouldSplitEdgesNearHandle bind:autoBestSideConnection
       bind:hateCrossings bind:routeOnlyWhenBlocked bind:hideHandles bind:realTimeRouting
-      bind:handleSpacing bind:segmentPenalty bind:anglePenalty bind:reverseDirectionPenalty
-      bind:crossingPenalty bind:layoutAlgorithm bind:elkMode bind:layoutDirection
+      bind:handleSpacing bind:pinInsideOffset bind:segmentPenalty bind:anglePenalty
+      bind:reverseDirectionPenalty bind:crossingPenalty
+      bind:nudgeOrthogonalSegmentsConnectedToShapes bind:nudgeSharedPathsWithCommonEndPoint
+      bind:performUnifyingNudgingPreprocessingStep bind:nudgeOrthogonalTouchingColinearSegments
+      bind:debounceMs bind:layoutAlgorithm bind:elkMode bind:layoutDirection
       bind:layoutSpacing bind:resolveOverlaps
       on:runlayout={handleRunLayout}
     />
