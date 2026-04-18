@@ -41,32 +41,53 @@ import {
   ConnDirLeft,
   shapeBufferDistance,
   idealNudgingDistance,
+  segmentPenalty,
+  // Late-bound helpers (must be wired onto the router for orthogonal routing)
+  AStarPath,
+  ConnectorCrossings,
+  generateStaticOrthogonalVisGraph,
+  improveOrthogonalRoutes,
+  vertexVisibility,
 } from "obstacle-router";
 
-// Create a router with orthogonal routing
+// 1. Create a router with orthogonal routing
 const router = new Router(OrthogonalRouting);
-router.setRoutingParameter(shapeBufferDistance, 8);
-router.setRoutingParameter(idealNudgingDistance, 10);
 
-// Add obstacle shapes
+// Wire up the orthogonal routing helpers. They are exported as separate
+// functions to keep the package tree-shakeable and to avoid circular
+// dependencies inside the router. You only need this for OrthogonalRouting;
+// PolyLineRouting works without it.
+(router as any)._generateStaticOrthogonalVisGraph = generateStaticOrthogonalVisGraph;
+(router as any)._improveOrthogonalRoutes = improveOrthogonalRoutes;
+(router as any)._ConnectorCrossings = ConnectorCrossings;
+(router as any)._AStarPath = AStarPath;
+(router as any)._vertexVisibility = vertexVisibility;
+
+// 2. Tune routing behaviour
+router.setRoutingParameter(shapeBufferDistance, 8);    // gap around shapes
+router.setRoutingParameter(idealNudgingDistance, 10);  // gap between parallel edges
+router.setRoutingParameter(segmentPenalty, 10);        // MUST be > 0 for nudging
+
+// 3. Add obstacle shapes
 const rectA = new Rectangle(new Point(0, 0), new Point(100, 50));
 const shapeA = new ShapeRef(router, rectA);
 
-const rectB = new Rectangle(new Point(250, 0), new Point(350, 50));
+const rectB = new Rectangle(new Point(300, 0), new Point(400, 50));
 const shapeB = new ShapeRef(router, rectB);
 
-// Add connection pins on shapes
-// Pin on right side of shape A (x=1.0, y=0.5 proportional)
-new ShapeConnectionPin(shapeA, 1, 1.0, 0.5, true, 0, ConnDirRight);
-// Pin on left side of shape B
-new ShapeConnectionPin(shapeB, 2, 0.0, 0.5, true, 0, ConnDirLeft);
+// 4. Attach connection pins to the shapes.
+// Use the static `createForShape` factory — direct `new ShapeConnectionPin(...)`
+// expects an options object, not positional arguments.
+// Args: (shape, classId, xOffset, yOffset, proportional, insideOffset, visDirs)
+ShapeConnectionPin.createForShape(shapeA, 1, 1.0, 0.5, true, 0, ConnDirRight);
+ShapeConnectionPin.createForShape(shapeB, 2, 0.0, 0.5, true, 0, ConnDirLeft);
 
-// Create a connector between pins
+// 5. Create a connector between the two pins
 const srcEnd = ConnEnd.fromShapePin(shapeA, 1);
 const tgtEnd = ConnEnd.fromShapePin(shapeB, 2);
 const connRef = new ConnRef(router, srcEnd, tgtEnd);
 
-// Process and read the route
+// 6. Process and read the route
 router.processTransaction();
 
 const route = connRef.displayRoute();
@@ -76,6 +97,8 @@ for (let i = 0; i < route.size(); i++) {
 }
 ```
 
+> See [`apps/router-test`](https://github.com/awaisshah228/avoid-edge-routing/tree/main/apps/router-test) for a runnable end-to-end example, and [`reactflow-edge-routing`](https://www.npmjs.com/package/reactflow-edge-routing) / [`svelteflow-edge-routing`](https://www.npmjs.com/package/svelteflow-edge-routing) for higher-level React Flow / Svelte Flow integrations built on top of this package.
+
 ## API Reference
 
 ### Router
@@ -84,6 +107,15 @@ The main routing engine. Manages shapes, connectors, and performs route computat
 
 ```typescript
 const router = new Router(OrthogonalRouting);
+
+// Required for OrthogonalRouting only — wire the late-bound helpers.
+// They are exported as separate functions to keep the package
+// tree-shakeable and to break circular deps inside the router.
+(router as any)._generateStaticOrthogonalVisGraph = generateStaticOrthogonalVisGraph;
+(router as any)._improveOrthogonalRoutes = improveOrthogonalRoutes;
+(router as any)._ConnectorCrossings = ConnectorCrossings;
+(router as any)._AStarPath = AStarPath;
+(router as any)._vertexVisibility = vertexVisibility;
 
 // Configure parameters
 router.setRoutingParameter(shapeBufferDistance, 12);    // gap between edges and shapes
@@ -142,15 +174,20 @@ router.deleteShape(shape);
 ### Connection Pins
 
 ```typescript
-// Pin at proportional position on shape
-// Args: shape, pinClassId, xProportion, yProportion, proportional, insideOffset, directions
-new ShapeConnectionPin(shape, pinId, 1.0, 0.5, true, 0, ConnDirRight);
+// Pin at proportional position on shape — use the static factory.
+// Args: (shape, classId, xOffset, yOffset, proportional, insideOffset, visDirs)
+ShapeConnectionPin.createForShape(shape, pinId, 1.0, 0.5, true, 0, ConnDirRight);
 
-// Common positions:
+// Common positions (xOffset, yOffset, visDirs):
 // Right center:  (1.0, 0.5, ConnDirRight)
 // Left center:   (0.0, 0.5, ConnDirLeft)
 // Top center:    (0.5, 0.0, ConnDirUp)
 // Bottom center: (0.5, 1.0, ConnDirDown)
+
+// Returned pin can be configured further:
+const pin = ShapeConnectionPin.createForShape(shape, 1, 1.0, 0.5, true, 0, ConnDirRight);
+pin.setExclusive(false);     // allow multiple connectors to share this pin
+pin.setConnectionCost(2);    // bias the router away from this pin (lower = preferred)
 ```
 
 ### Connectors

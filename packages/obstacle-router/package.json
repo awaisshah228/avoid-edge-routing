@@ -1,6 +1,6 @@
 {
   "name": "obstacle-router",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "TypeScript port of libavoid - Fast, Incremental, Object-avoiding Line Router",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -8,9 +8,11 @@
   "type": "module",
   "exports": {
     ".": {
+      "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
-    }
+      "default": "./dist/index.js"
+    },
+    "./*": "./dist/*"
   },
   "files": [
     "dist",

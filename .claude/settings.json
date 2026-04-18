@@ -11,7 +11,9 @@
       "Bash(git mv:*)",
       "Bash(lsof -iTCP -sTCP:LISTEN -P)",
       "Read(//Users/awaisshah228/Documents/avoid-edge-routing/$9 ~ /**)",
-      "Bash(npm whoami:*)"
+      "Bash(npm whoami:*)",
+      "Bash(timeout 8 npx tsx src/index.ts)",
+      "Bash(npx tsx *)"
     ],
     "additionalDirectories": [
       "/Users/awaisshah228/Documents/coding/ai-diagram-generator/avoid-nodes-pro-example/assets"
